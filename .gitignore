@@ -1,0 +1,35 @@
+# Julia
+*.jl.cov
+*.jl.mem
+*.jl.prof
+*.ji
+*.so
+
+# Environments
+Manifest.toml
+.vscode/
+.idea/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.swp
+
+# Data / results
+*.h5
+*.hdf5
+*.csv
+*.npy
+*.npz
+*.mat
+*.dat
+*.out
+*.log
+
+# Plots / figures
+*.png
+*.pdf
+*.svg
+
+# Temporary
+tmp/
