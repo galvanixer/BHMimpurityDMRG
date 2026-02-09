@@ -6,12 +6,8 @@
     load_params(path::AbstractString)
 
 Load parameters from a YAML file using YAML.jl.
-
-Requires `YAML.jl` to be installed:
-    import Pkg; Pkg.add("YAML")
 """
 function load_params(path::AbstractString)
-    @eval using YAML
     return YAML.load_file(path)
 end
 
@@ -32,4 +28,20 @@ Fetch a section from a config dict with a helpful error if missing.
 function get_section(cfg::AbstractDict, name::AbstractString)
     haskey(cfg, name) || throw(ArgumentError("missing section '$name' in config"))
     return cfg[name]
+end
+
+"""
+    merge_sections(cfg::AbstractDict, names::Vector{String})
+
+Merge multiple config sections into a single NamedTuple. Later sections win on key conflicts.
+Missing sections are skipped.
+"""
+function merge_sections(cfg::AbstractDict, names::Vector{String})
+    nt = (;)
+    for name in names
+        if haskey(cfg, name)
+            nt = merge(nt, dict_to_namedtuple(cfg[name]))
+        end
+    end
+    return nt
 end

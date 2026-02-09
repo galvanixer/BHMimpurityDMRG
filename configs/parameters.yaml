@@ -1,0 +1,58 @@
+meta:
+  description: "Default parameters for 1D impurity Bose-Hubbard DMRG"
+  date: "2026-02-06"
+  notes: "Single impurity, test settings"
+  run_name: "test_run_01"
+  run_by: "Galvanixer"
+
+lattice:
+  L: 12
+  periodic: true
+
+local_hilbert:
+  nmax_a: 2
+  nmax_b: 3
+  conserve_qns: true
+
+initial_state:
+  Na_total: 12
+  Nb_total: 3
+  impurity_distribution: "center"  # "center" or "random"
+  seed: 14061990
+
+hamiltonian:
+  t_a: 1.0
+  t_b: 1.0
+  U_a: 16.0
+  U_b: 0.0
+  U_ab: -2.0
+  mu_a: 6.627
+  mu_b: 4.2
+
+dmrg:
+  nsweeps: 15
+  cutoff: 1e-10
+  maxdim: [50, 100, 200, 400, 600, 800, 800, 800, 800, 800, 800, 800]
+
+io:
+  save_state: true
+  state_save_path: "dmrg_state.h5"
+  results_path: "results.h5"
+  log_path: "run.log"
+
+observables:
+  triple_corr:
+    species: "both"   # "a", "b", or "both"
+    all_pairs: true   # If true, compute on a grid. If false, use the specified pairs below.
+    rmax: 6           # Optional: restrict r in 0..rmax (used if all_pairs=true or rmax/smax set)
+    smax: 6           # Optional: restrict s in 0..smax
+    precompute: true  # Precompute ⟨n_i⟩ and ⟨n_i n_j⟩ for speed
+    pairs:
+      - [0, 0]
+      - [0, 1]
+      - [0, 2]
+      - [1, 1]
+      - [1, 2]
+      - [1, 3]
+      - [2, 3]
+    output_path: "triple_corr.h5"
