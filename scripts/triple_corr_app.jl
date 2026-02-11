@@ -8,25 +8,6 @@ using HDF5
 using SHA
 using Logging
 using Dates
-
-# Setting up a logger that writes to both console and file
-struct TeeLogger <: AbstractLogger
-    loggers::NTuple{2,AbstractLogger}
-end
-
-Logging.min_enabled_level(t::TeeLogger) = minimum(Logging.min_enabled_level.(t.loggers)) # Minimum level across all loggers
-Logging.shouldlog(t::TeeLogger, level, _module, group, id) =
-    any(l -> Logging.shouldlog(l, level, _module, group, id), t.loggers) # Log if any logger wants to log
-Logging.catch_exceptions(t::TeeLogger) = any(Logging.catch_exceptions, t.loggers) # Catch exceptions if any logger does
-function Logging.handle_message(t::TeeLogger, level, message, _module, group, id, file, line; kwargs...)
-    for l in t.loggers
-        if Logging.shouldlog(l, level, _module, group, id)
-            Logging.handle_message(l, level, message, _module, group, id, file, line; kwargs...)
-        end
-    end
-end
-# End of TeeLogger definition
-
 function main()
     params_path = length(ARGS) >= 1 ? ARGS[1] :
                   get(ENV, "PARAMS", joinpath(@__DIR__, "..", "configs", "parameters.yaml"))
@@ -38,45 +19,72 @@ function main()
     state_path = get(io_cfg, "state_save_path", "dmrg_state.h5")
     save_state_flag = get(io_cfg, "save_state", true)
     
-    log_path = get(io_cfg, "log_path", "run.log")
-    logio = open(log_path, "a")
-    logger = TeeLogger((ConsoleLogger(stderr, Logging.Info), SimpleLogger(logio, Logging.Info)))
+    logcfg = setup_logger(io_cfg; default_log_path="run.log")
+    logger = logcfg.logger
 
     with_logger(logger) do
         logstarttime = Dates.format(now(), "yyyy-mm-dd HH:MM:SS")
         @info "--------Logging starts here -------- ($logstarttime)--------"
         @info "Starting triple_corr" params_path = params_path state_path = state_path
+        params_text = isfile(params_path) ? read(params_path, String) : nothing
+        current_hash = params_text === nothing ? nothing : bytes2hex(SHA.sha256(params_text))
+        _, init_na, init_nb = dmrg_initial_configuration(; dmrg_cfg...)
         t_total = time_ns()
         t_state = time_ns()
+        na = nothing
+        nb = nothing
         if isfile(state_path)
             st = load_state(state_path)
-            params_text = read(params_path, String)
-            current_hash = bytes2hex(SHA.sha256(params_text))
-            if st.params_sha256 !== nothing && st.params_sha256 == current_hash
+            if current_hash !== nothing && st.params_sha256 !== nothing && st.params_sha256 == current_hash
                 psi = st.psi
                 sites = st.sites
                 energy = st.energy
+                na = st.na
+                nb = st.nb
                 @info "Loaded cached state" state_path = state_path
             else
                 @info "State hash mismatch; recomputing"
-                energy, psi, sites, H = run_dmrg(; dmrg_cfg...)
+                energy, psi, sites, H = run_dmrg(; checkpoint_params_path=params_path, dmrg_cfg...)
                 if save_state_flag
                     na, nb = measure_densities(psi, sites)
-                    save_state(state_path, psi; energy=energy, params_path=params_path, na=na, nb=nb)
+                    save_state(
+                        state_path,
+                        psi;
+                        energy=energy,
+                        params_path=params_path,
+                        na=na,
+                        nb=nb,
+                        init_na=init_na,
+                        init_nb=init_nb
+                    )
                     @info "Saved state" state_path = state_path
                 end
             end
         else
             @info "No cached state; running DMRG"
-            energy, psi, sites, H = run_dmrg(; dmrg_cfg...)
+            energy, psi, sites, H = run_dmrg(; checkpoint_params_path=params_path, dmrg_cfg...)
             if save_state_flag
                 na, nb = measure_densities(psi, sites)
-                save_state(state_path, psi; energy=energy, params_path=params_path, na=na, nb=nb)
+                save_state(
+                    state_path,
+                    psi;
+                    energy=energy,
+                    params_path=params_path,
+                    na=na,
+                    nb=nb,
+                    init_na=init_na,
+                    init_nb=init_nb
+                )
                 @info "Saved state" state_path = state_path
             end
         end
         @info "State ready" seconds = (time_ns() - t_state) / 1e9
-        flush(logio) # Ensure all logs are written before proceeding
+        flush(logcfg.logio) # Ensure all logs are written before proceeding
+
+        if na === nothing || nb === nothing
+            na, nb = measure_densities(psi, sites)
+        end
+        Na, Nb = total_numbers(na, nb)
 
         # Measure translationally averaged connected 3-point correlator:
         # C^(3)(r, s) = (1/L) Σ_i ⟨n_i n_{i+r} n_{i+s}⟩_c
@@ -167,9 +175,21 @@ function main()
         mode = isfile(results_path) ? "r+" : "w"
         HDF5.h5open(results_path, mode) do f
             g_meta = ensure_group(f, "meta")
-            write_meta!(g_meta; params_path=params_path)
+            write_meta!(g_meta;
+                params_path=params_path,
+                state_path=state_path,
+                state_params_sha256=current_hash
+            )
             g_obs = ensure_group(f, "observables")
+            g_energy = ensure_group(g_obs, "energy")
+            g_den = ensure_group(g_obs, "densities")
+            g_tot = ensure_group(g_obs, "totals")
             g_tc = ensure_group(g_obs, "triple_corr")
+            write_or_replace(g_energy, "E0", energy)
+            write_or_replace(g_den, "na", na)
+            write_or_replace(g_den, "nb", nb)
+            write_or_replace(g_tot, "Na", Na)
+            write_or_replace(g_tot, "Nb", Nb)
             write_or_replace(g_tc, "pairs", hcat([p[1] for p in pairs], [p[2] for p in pairs]))
             write_or_replace(g_tc, "anchors", anchors)
             if results_a !== nothing
@@ -186,7 +206,7 @@ function main()
         @info "Total time" seconds = (time_ns() - t_total) / 1e9
     end
 
-    close(logio)
+    close(logcfg.logio)
 
     return nothing
 end

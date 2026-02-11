@@ -1,0 +1,24 @@
+campaign:
+  name: "example_deep_mi_scan"
+  # Relative path (resolved from this campaign file directory):
+  output_root: "runs"
+  # Optional absolute path (takes priority over output_root):
+  # output_root_abs: "/absolute/path/to/runs"
+  app_script: "scripts/solve_ground_state.jl"
+  params_filename: "parameters.yaml"
+
+# Base config copied for each run before applying overrides/sweep values.
+base_config: "configs/parameters.yaml"
+
+# Applied to every run (dot-path keys).
+overrides:
+  io.console_log: false
+  dmrg.checkpoint_every: 10
+  dmrg.checkpoint_save_densities: true
+  dmrg.checkpoint_density_every: 2
+
+# Cartesian sweep (dot-path keys).
+sweep:
+  hamiltonian.mu_b: [3.8, 4.0, 4.2]
+  hamiltonian.U_ab: [-1.5, -2.0, -2.5]
+  initial_state.seed: [14061990, 14061991]

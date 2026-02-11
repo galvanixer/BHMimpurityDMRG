@@ -19,13 +19,16 @@ function effective_energy(energy::Real, Nb::Real, mu_b::Real)
 end
 
 """
-    sector_energy(; Nb_total::Int, mu_b::Real=0.0, keep_state::Bool=false, kwargs...)
+    sector_energy(; Nb_total_sector::Int, mu_b::Real=0.0, keep_state::Bool=false, kwargs...)
 
 Run DMRG in a fixed-impurity sector and return the effective energy Ẽ.
 If keep_state=false, only returns scalars.
 """
-function sector_energy(; Nb_total::Int, nmax_b_sector::Int=0, mu_b::Real=0.0, keep_state::Bool=false, kwargs...)
-    energy, psi, sites, H = run_dmrg(; Nb_total=Nb_total, nmax_b=nmax_b_sector, mu_b=mu_b, kwargs...)
+function sector_energy(; Nb_total_sector::Int, nmax_b_sector::Int=0, mu_b::Real=0.0, keep_state::Bool=false, kwargs...)
+    if haskey(kwargs, :Nb_total)
+        kwargs = Base.structdiff(kwargs, (; Nb_total=nothing))
+    end
+    energy, psi, sites, H = run_dmrg(; Nb_total=Nb_total_sector, nmax_b=nmax_b_sector, mu_b=mu_b, kwargs...)
     na, nb = measure_densities(psi, sites)
     # Print average nb and na density
     println("Average Nb density = ", mean(nb))
@@ -52,10 +55,10 @@ Returns a NamedTuple with:
 - Ebind321: E3 - E2 - E1 + E0
 """
 function binding_energies(; mu_b::Real=0.0, kwargs...)
-    r0 = sector_energy(; Nb_total=0, nmax_b_sector=1, mu_b=mu_b, kwargs...)
-    r1 = sector_energy(; Nb_total=1, nmax_b_sector=1, mu_b=mu_b, kwargs...)
-    r2 = sector_energy(; Nb_total=2, nmax_b_sector=2, mu_b=mu_b, kwargs...)
-    r3 = sector_energy(; Nb_total=3, nmax_b_sector=3, mu_b=mu_b, kwargs...)
+    r0 = sector_energy(; Nb_total_sector=0, nmax_b_sector=1, mu_b=mu_b, kwargs...)
+    r1 = sector_energy(; Nb_total_sector=1, nmax_b_sector=1, mu_b=mu_b, kwargs...)
+    r2 = sector_energy(; Nb_total_sector=2, nmax_b_sector=2, mu_b=mu_b, kwargs...)
+    r3 = sector_energy(; Nb_total_sector=3, nmax_b_sector=3, mu_b=mu_b, kwargs...)
 
     E0 = r0.Etilde
     E1 = r1.Etilde

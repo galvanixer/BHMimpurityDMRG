@@ -31,3 +31,7 @@ function measure_densities(psi, sites)
     end
     return na, nb
 end
+
+function total_numbers(na::AbstractVector, nb::AbstractVector)
+    return sum(na), sum(nb)
+end

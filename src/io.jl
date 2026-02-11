@@ -17,7 +17,7 @@ function write_or_replace(parent, name::AbstractString, data)
     return nothing
 end
 
-function write_meta!(g_meta; params_path=nothing, params_text=nothing)
+function write_meta!(g_meta; params_path=nothing, params_text=nothing, state_path=nothing, state_params_sha256=nothing)
     if params_text === nothing && params_path !== nothing
         params_text = read(params_path, String)
     end
@@ -27,6 +27,12 @@ function write_meta!(g_meta; params_path=nothing, params_text=nothing)
     end
     if params_path !== nothing
         write_or_replace(g_meta, "params_path", abspath(params_path))
+    end
+    if state_path !== nothing
+        write_or_replace(g_meta, "state_path", abspath(state_path))
+    end
+    if state_params_sha256 !== nothing
+        write_or_replace(g_meta, "state_params_sha256", String(state_params_sha256))
     end
     if !haskey(g_meta, "created_at")
         write(g_meta, "created_at", string(Dates.now()))
@@ -62,14 +68,16 @@ end
 
 """
     save_state(path::AbstractString, psi::MPS; energy=nothing, sites=siteinds(psi),
-               params_path=nothing, params_text=nothing, na=nothing, nb=nothing)
+               params_path=nothing, params_text=nothing, na=nothing, nb=nothing,
+               init_na=nothing, init_nb=nothing)
 
 Save the ground state `psi` (and optionally `energy`, `sites`, YAML parameters, and
 site densities `na`, `nb`)
 to an HDF5 file.
 """
 function save_state(path::AbstractString, psi::MPS; energy=nothing, sites=siteinds(psi),
-    params_path=nothing, params_text=nothing, na=nothing, nb=nothing)
+    params_path=nothing, params_text=nothing, na=nothing, nb=nothing,
+    init_na=nothing, init_nb=nothing)
     HDF5.h5open(path, "w") do f
         g_state = HDF5.create_group(f, "state")
         write(g_state, "psi", psi)
@@ -91,6 +99,17 @@ function save_state(path::AbstractString, psi::MPS; energy=nothing, sites=sitein
                 write(g_den, "nb", nb)
             end
         end
+
+        if init_na !== nothing || init_nb !== nothing
+            g_init = HDF5.create_group(f, "initial_state")
+            g_init_obs = HDF5.create_group(g_init, "observables")
+            if init_na !== nothing
+                write(g_init_obs, "na", init_na)
+            end
+            if init_nb !== nothing
+                write(g_init_obs, "nb", init_nb)
+            end
+        end
     end
     return nothing
 end
@@ -100,8 +119,8 @@ end
 
 Load a saved MPS ground state from an HDF5 file.
 
-Returns a NamedTuple `(psi, sites, energy, params_yaml, params_sha256, na, nb)` where
-`energy`, `params_yaml`, `params_sha256`, `na`, and `nb` may be `nothing` if they were not stored.
+Returns a NamedTuple `(psi, sites, energy, params_yaml, params_sha256, na, nb, init_na, init_nb)` where
+optional fields may be `nothing` if they were not stored.
 """
 function load_state(path::AbstractString)
     HDF5.h5open(path, "r") do f
@@ -139,6 +158,15 @@ function load_state(path::AbstractString)
             na = haskey(g_den, "na") ? read(g_den, "na") : nothing
             nb = haskey(g_den, "nb") ? read(g_den, "nb") : nothing
         end
-        return (; psi, sites, energy, params_yaml, params_sha256, na, nb)
+
+        init_na = nothing
+        init_nb = nothing
+        if haskey(f, "initial_state") && haskey(f["initial_state"], "observables")
+            g_init_obs = f["initial_state"]["observables"]
+            init_na = haskey(g_init_obs, "na") ? read(g_init_obs, "na") : nothing
+            init_nb = haskey(g_init_obs, "nb") ? read(g_init_obs, "nb") : nothing
+        end
+
+        return (; psi, sites, energy, params_yaml, params_sha256, na, nb, init_na, init_nb)
     end
 end

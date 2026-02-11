@@ -1,3 +1,6 @@
+# ----------------------------
+# Run metadata (stored in output files; does not change physics)
+# ----------------------------
 meta:
   description: "Default parameters for 1D impurity Bose-Hubbard DMRG"
   date: "2026-02-06"
@@ -5,21 +8,34 @@ meta:
   run_name: "test_run_01"
   run_by: "Galvanixer"
 
+# ----------------------------
+# Lattice geometry
+# ----------------------------
 lattice:
-  L: 12
-  periodic: true
+  L: 12           # Number of sites
+  periodic: true  # true = PBC, false = OBC
 
+# ----------------------------
+# Local Hilbert space
+# ----------------------------
 local_hilbert:
-  nmax_a: 2
-  nmax_b: 3
-  conserve_qns: true
+  nmax_a: 2         # Max occupation for boson species a per site
+  nmax_b: 3         # Max occupation for boson species b per site
+  conserve_qns: true  # true = fixed U(1) sectors (block sparse), false = dense tensors
 
+# ----------------------------
+# Initial product state used to start DMRG
+# ----------------------------
 initial_state:
   Na_total: 12
   Nb_total: 3
   impurity_distribution: "center"  # "center" or "random"
-  seed: 14061990
+  seed: 14061990                   # Used when impurity_distribution="random"
 
+# ----------------------------
+# Hamiltonian parameters
+# H = kinetic + interactions - mu_a * N_a - mu_b * N_b
+# ----------------------------
 hamiltonian:
   t_a: 1.0
   t_b: 1.0
@@ -29,24 +45,55 @@ hamiltonian:
   mu_a: 6.627
   mu_b: 4.2
 
+# ----------------------------
+# DMRG controls
+# ----------------------------
 dmrg:
-  nsweeps: 15
-  cutoff: 1e-10
-  maxdim: [50, 100, 200, 400, 600, 800, 800, 800, 800, 800, 800, 800]
+  nsweeps: 15     # Maximum number of sweeps (may stop earlier if criteria below are met)
+  cutoff: 1e-10   # SVD truncation cutoff
+  maxdim: [50, 100, 200, 400, 600, 800, 800, 800, 800, 800, 800, 800]  # Per-sweep bond-dimension schedule
+  energy_tol: 1e-7  # Early-stop: require |E_s - E_{s-1}| < energy_tol (set <=0 to disable)
+  trunc_tol: 1e-7   # Early-stop: require max truncation error < trunc_tol (set <=0 to disable)
+  min_sweeps: 8     # Do at least this many sweeps before checking early-stop
+  patience: 3       # Number of consecutive sweeps satisfying active criteria before stopping
+  checkpoint_every: 0  # Save checkpoint every N sweeps (0 disables checkpointing)
+  checkpoint_path: "dmrg_state_checkpoint.h5" # Rewritten atomically at each checkpoint
+  checkpoint_save_densities: false # If true, also store na/nb in checkpoint files
+  checkpoint_density_every: 1 # Save densities every K checkpoints (only used if checkpoint_save_densities=true)
+  outputlevel: 1    # ITensors verbosity (0 quiet, 1 sweep summary, >=2 detailed)
 
+# ----------------------------
+# Input/output and logging
+# ----------------------------
 io:
-  save_state: true
-  state_save_path: "dmrg_state.h5"
-  results_path: "results.h5"
-  log_path: "run.log"
+  save_state: true               # Save converged MPS to state_save_path
+  state_save_path: "dmrg_state.h5"  # Used for hash-based state reuse
+  results_path: "results.h5"     # HDF5 file for observable outputs
+  log_path: "run.log"            # Log file path
+  console_log: true              # Mirror logs to console
+  console_level: "info"          # "debug", "info", "warn", "error"
 
+# ----------------------------
+# Observable controls
+# ----------------------------
 observables:
+  energy:
+    store_history: false  # Reserved for future sweep-wise energy history
+  densities: {}
+  totals: {}
+  density_density:
+    species: "both"            # "a", "b", or "both"
+    max_r: 6                   # Correlator distances r in [0, max_r]; if omitted, uses [0, L-1]
+    fold_min_image: false      # If true with periodic lattice, fold r using minimum-image convention
+    same_site_convention: "factorial"  # "factorial" => n(n-1) on i=j, "plain" => n^2 on i=j
+  structure_factor:
+    species: "both"  # "a", "b", or "both"
   triple_corr:
     species: "both"   # "a", "b", or "both"
-    all_pairs: true   # If true, compute on a grid. If false, use the specified pairs below.
-    rmax: 6           # Optional: restrict r in 0..rmax (used if all_pairs=true or rmax/smax set)
-    smax: 6           # Optional: restrict s in 0..smax
-    precompute: true  # Precompute ⟨n_i⟩ and ⟨n_i n_j⟩ for speed
+    all_pairs: true   # true => compute all (r,s) on a grid; false => use explicit list below
+    rmax: 6           # Max r for grid mode (or when rmax/smax are provided)
+    smax: 6           # Max s for grid mode
+    precompute: true  # Precompute ⟨n_i⟩ and ⟨n_i n_j⟩ to accelerate connected 3-point evaluation
     pairs:
       - [0, 0]
       - [0, 1]
@@ -55,4 +102,4 @@ observables:
       - [1, 2]
       - [1, 3]
       - [2, 3]
-    output_path: "triple_corr.h5"
+    output_path: "triple_corr.h5"  # Reserved path field; current app writes to io.results_path

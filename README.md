@@ -33,7 +33,7 @@ Pkg.add(["ITensors", "ITensorMPS", "YAML", "HDF5"])
 ## Usage
 Run the example apps:
 ```bash
-julia scripts/impuritydmrg.jl
+julia scripts/solve_ground_state.jl
 julia scripts/binding_energy_app.jl
 julia scripts/triple_corr_app.jl
 ```
@@ -97,7 +97,21 @@ io:
   state_save_path: "dmrg_state.h5"
   results_path: "results.h5"
   log_path: "run.log"
+  console_log: true
+  console_level: "info"
 
+```
+
+Binding energy config example:
+```yaml
+binding_energy:
+  save_states: false
+  state_path_template: "dmrg_state_Nb{Nb_total}.h5"
+  sectors:
+    - Nb_total: 0
+    - Nb_total: 1
+    - Nb_total: 2
+    - Nb_total: 3
 ```
 
 ## Saving and Loading Ground States
