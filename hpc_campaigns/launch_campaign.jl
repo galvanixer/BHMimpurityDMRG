@@ -3,50 +3,15 @@
 # License: MIT
 # Copyright (c) 2026 Tanul Gupta
 
-using YAML
 using Printf
 using Dates
-
-function as_dict(x)
-    x isa AbstractDict || throw(ArgumentError("expected dictionary, got $(typeof(x))"))
-    return Dict{String,Any}(String(k) => v for (k, v) in x)
-end
-
-function set_nested!(d::AbstractDict, dotted_key::AbstractString, value)
-    parts = split(String(dotted_key), ".")
-    isempty(parts) && throw(ArgumentError("empty key"))
-    cur = d
-    for p in parts[1:(end - 1)]
-        if !haskey(cur, p) || !(cur[p] isa AbstractDict)
-            cur[p] = Dict{String,Any}()
-        end
-        cur = cur[p]
-    end
-    cur[parts[end]] = value
-    return d
-end
-
-function as_vector(v)
-    return v isa AbstractVector ? collect(v) : [v]
-end
-
-function sweep_assignments(sweep::AbstractDict)
-    sweepd = Dict{String,Any}(String(k) => v for (k, v) in sweep)
-    keys_sorted = sort(collect(keys(sweepd)))
-    if isempty(keys_sorted)
-        return [Dict{String,Any}()]
-    end
-    values = [as_vector(sweepd[k]) for k in keys_sorted]
-    assigns = Dict{String,Any}[]
-    for tuple_vals in Iterators.product(values...)
-        a = Dict{String,Any}()
-        for (k, v) in zip(keys_sorted, tuple_vals)
-            a[k] = v
-        end
-        push!(assigns, a)
-    end
-    return assigns
-end
+using OrderedCollections: OrderedDict
+include(joinpath(@__DIR__, "yaml_helpers.jl"))
+using .YAMLHelpers: as_dict
+using .YAMLHelpers: load_ordered_yaml
+using .YAMLHelpers: set_nested!
+using .YAMLHelpers: sweep_assignments
+using .YAMLHelpers: write_yaml_ordered
 
 function apply_overrides!(cfg::AbstractDict, overrides::AbstractDict)
     for (k, v) in overrides
@@ -61,8 +26,8 @@ function main()
     campaign_file = abspath(ARGS[1])
     isfile(campaign_file) || error("Campaign file not found: $campaign_file")
 
-    c = as_dict(YAML.load_file(campaign_file))
-    campaign = haskey(c, "campaign") ? as_dict(c["campaign"]) : Dict{String,Any}()
+    c = load_ordered_yaml(campaign_file)
+    campaign = haskey(c, "campaign") ? as_dict(c["campaign"]) : OrderedDict{String,Any}()
 
     campaign_name = get(campaign, "name", "campaign_" * Dates.format(now(), "yyyymmdd_HHMMSS"))
     output_root_raw = if length(ARGS) >= 2
@@ -79,12 +44,18 @@ function main()
 
     base_config_path = haskey(c, "base_config") ? String(c["base_config"]) :
                        error("Missing required key: base_config")
-    base_config_abs = abspath(base_config_path)
+    repo_root = abspath(joinpath(@__DIR__, ".."))
+    base_config_abs = if isabspath(base_config_path)
+        base_config_path
+    else
+        by_campaign = abspath(joinpath(dirname(campaign_file), base_config_path))
+        isfile(by_campaign) ? by_campaign : abspath(joinpath(repo_root, base_config_path))
+    end
     isfile(base_config_abs) || error("Base config not found: $base_config_abs")
-    base_cfg = as_dict(YAML.load_file(base_config_abs))
+    base_cfg = load_ordered_yaml(base_config_abs)
 
-    overrides = haskey(c, "overrides") ? as_dict(c["overrides"]) : Dict{String,Any}()
-    sweep = haskey(c, "sweep") ? as_dict(c["sweep"]) : Dict{String,Any}()
+    overrides = haskey(c, "overrides") ? as_dict(c["overrides"]) : OrderedDict{String,Any}()
+    sweep = haskey(c, "sweep") ? as_dict(c["sweep"]) : OrderedDict{String,Any}()
     assigns = sweep_assignments(sweep)
 
     campaign_dir = joinpath(output_root, campaign_name)
@@ -116,7 +87,7 @@ function main()
         set_nested!(cfg, "meta.run_name", run_id)
 
         params_path = abspath(joinpath(run_dir, params_filename))
-        YAML.write_file(params_path, cfg)
+        write_yaml_ordered(params_path, cfg; reference=base_cfg, inline_keys=["maxdim"])
 
         open(index_path, "a") do io
             println(io, join([run_id, run_dir, params_path, app_script, "PENDING"], ","))

@@ -4,6 +4,7 @@ This folder contains Slurm-first tooling to generate and submit many DMRG runs.
 
 ## Files
 - `hpc_campaigns/launch_campaign.jl`: generates run directories and per-run `parameters.yaml`.
+- `hpc_campaigns/yaml_helpers.jl`: ordered YAML load/write helpers used by campaign tooling.
 - `hpc_campaigns/templates/base_campaign.yaml`: example campaign definition.
 - `hpc_campaigns/slurm/job.slurm`: one array-task job runner.
 - `hpc_campaigns/slurm/submit_array.sh`: submits all generated runs as a Slurm array.
@@ -40,6 +41,13 @@ It also creates:
   1. CLI arg `output_root_override`
   2. `campaign.output_root_abs` in campaign YAML
   3. `campaign.output_root` in campaign YAML
+- `base_config` path resolution:
+  1. absolute path as-is
+  2. relative to campaign YAML directory (if file exists there)
+  3. otherwise relative to repository root
+- Generated `parameters.yaml` preserves the section/key order of `base_config` when possible.
+- `dmrg.maxdim` is emitted in inline YAML list form for readability.
+- `observables.triple_corr.pairs` is emitted in compact row form (`- [r, s]`).
 - Paths for state/results/log/checkpoint are written as absolute paths per run.
 - `meta.run_name` in each generated config is set to `run_XXXX`.
 - This tooling is intentionally outside `src/` to keep the library scheduler-agnostic.

@@ -19,18 +19,9 @@ lattice:
 # Local Hilbert space
 # ----------------------------
 local_hilbert:
-  nmax_a: 2         # Max occupation for boson species a per site
-  nmax_b: 3         # Max occupation for boson species b per site
   conserve_qns: true  # true = fixed U(1) sectors (block sparse), false = dense tensors
-
-# ----------------------------
-# Initial product state used to start DMRG
-# ----------------------------
-initial_state:
-  Na_total: 12
-  Nb_total: 3
-  impurity_distribution: "center"  # "center" or "random"
-  seed: 14061990                   # Used when impurity_distribution="random"
+  nmax_a: 2           # Max occupation for boson species a per site
+  nmax_b: 3           # Max occupation for boson species b per site
 
 # ----------------------------
 # Hamiltonian parameters
@@ -46,32 +37,34 @@ hamiltonian:
   mu_b: 4.2
 
 # ----------------------------
+# Initial product state used to start DMRG
+# ----------------------------
+initial_state:
+  Na_total: 12
+  Nb_total: 3
+  impurity_distribution: "center"  # "center" or "random"
+  seed: 14061990                   # Used when impurity_distribution="random"
+
+# ----------------------------
 # DMRG controls
 # ----------------------------
 dmrg:
   nsweeps: 15     # Maximum number of sweeps (may stop earlier if criteria below are met)
-  cutoff: 1e-10   # SVD truncation cutoff
   maxdim: [50, 100, 200, 400, 600, 800, 800, 800, 800, 800, 800, 800]  # Per-sweep bond-dimension schedule
-  energy_tol: 1e-7  # Early-stop: require |E_s - E_{s-1}| < energy_tol (set <=0 to disable)
-  trunc_tol: 1e-7   # Early-stop: require max truncation error < trunc_tol (set <=0 to disable)
-  min_sweeps: 8     # Do at least this many sweeps before checking early-stop
-  patience: 3       # Number of consecutive sweeps satisfying active criteria before stopping
-  checkpoint_every: 0  # Save checkpoint every N sweeps (0 disables checkpointing)
-  checkpoint_path: "dmrg_state_checkpoint.h5" # Rewritten atomically at each checkpoint
-  checkpoint_save_densities: false # If true, also store na/nb in checkpoint files
-  checkpoint_density_every: 1 # Save densities every K checkpoints (only used if checkpoint_save_densities=true)
-  outputlevel: 1    # ITensors verbosity (0 quiet, 1 sweep summary, >=2 detailed)
+  cutoff: 1e-10   # SVD truncation cutoff
+  outputlevel: 1  # ITensors verbosity (0 quiet, 1 sweep summary, >=2 detailed)
 
-# ----------------------------
-# Input/output and logging
-# ----------------------------
-io:
-  save_state: true               # Save converged MPS to state_save_path
-  state_save_path: "dmrg_state.h5"  # Used for hash-based state reuse
-  results_path: "results.h5"     # HDF5 file for observable outputs
-  log_path: "run.log"            # Log file path
-  console_log: true              # Mirror logs to console
-  console_level: "info"          # "debug", "info", "warn", "error"
+  # Early stopping
+  min_sweeps: 8   # Do at least this many sweeps before checking early-stop
+  energy_tol: 1e-7  # Require |E_s - E_{s-1}| < energy_tol (set <=0 to disable)
+  trunc_tol: 1e-7   # Require max truncation error < trunc_tol (set <=0 to disable)
+  patience: 3       # Number of consecutive sweeps satisfying active criteria before stopping
+
+  # Checkpointing
+  checkpoint_every: 0  # Save checkpoint every N sweeps (0 disables checkpointing)
+  checkpoint_path: "dmrg_state_checkpoint.h5"  # Rewritten atomically at each checkpoint
+  checkpoint_save_densities: false  # If true, also store na/nb in checkpoint files
+  checkpoint_density_every: 1  # Save densities every K checkpoints (used if checkpoint_save_densities=true)
 
 # ----------------------------
 # Observable controls
@@ -103,3 +96,14 @@ observables:
       - [1, 3]
       - [2, 3]
     output_path: "triple_corr.h5"  # Reserved path field; current app writes to io.results_path
+
+# ----------------------------
+# Input/output and logging (does not change physics)
+# ----------------------------
+io:
+  results_path: "results.h5"          # HDF5 file for observable outputs
+  state_save_path: "dmrg_state.h5"    # Used for hash-based state reuse
+  save_state: true                    # Save converged MPS to state_save_path
+  log_path: "run.log"                 # Log file path
+  console_log: true                   # Mirror logs to console
+  console_level: "info"               # "debug", "info", "warn", "error"
