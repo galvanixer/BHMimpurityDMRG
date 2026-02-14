@@ -16,12 +16,13 @@ set -euo pipefail
 #                        - direct account via acct:<account_id> (e.g., acct:g2025a457b)
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 LOCAL_CREDENTIALS_FILE="${SCRIPT_DIR}/credentials.local.sh"
 
 RUN_ROOT="${1:?Usage: bash hpc_campaigns/slurm/submit_multilauncher.sh <campaign_run_root> [n_subjobs] [threads_per_run] [job_script] [partition] [account_name]}"
 N_SUBJOBS="${2:-0}"
 THREADS_PER_RUN="${3:-1}"
-JOB_SCRIPT="${4:-hpc_campaigns/slurm/job.slurm}"
+JOB_SCRIPT_RAW="${4:-hpc_campaigns/slurm/job.slurm}"
 PARTITION="${5:-}"
 ACCOUNT_NAME="${6:-}"
 JOBFILE="${RUN_ROOT}/jobfile"
@@ -97,6 +98,21 @@ fi
 
 if [[ ! -f "$JOBFILE" ]]; then
   echo "Missing jobfile: $JOBFILE" >&2
+  exit 1
+fi
+
+RUN_ROOT="$(cd "$RUN_ROOT" && pwd)"
+JOBFILE="${RUN_ROOT}/jobfile"
+
+if [[ "$JOB_SCRIPT_RAW" = /* ]]; then
+  JOB_SCRIPT="$JOB_SCRIPT_RAW"
+elif [[ -f "$JOB_SCRIPT_RAW" ]]; then
+  JOB_SCRIPT="$(cd "$(dirname "$JOB_SCRIPT_RAW")" && pwd)/$(basename "$JOB_SCRIPT_RAW")"
+elif [[ -f "${REPO_ROOT}/${JOB_SCRIPT_RAW}" ]]; then
+  JOB_SCRIPT="${REPO_ROOT}/${JOB_SCRIPT_RAW}"
+else
+  echo "Unable to locate job script: $JOB_SCRIPT_RAW" >&2
+  echo "Tried current directory and repository root (${REPO_ROOT})." >&2
   exit 1
 fi
 
