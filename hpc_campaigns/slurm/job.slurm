@@ -35,6 +35,9 @@ fi
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$REPO_ROOT"
 
+# Ensure campaign commands use this repository's Julia environment by default.
+export JULIA_PROJECT="${JULIA_PROJECT:-$REPO_ROOT}"
+
 echo "[$(date)] Starting multi-launch task"
 echo "run_root=$RUN_ROOT"
 echo "jobfile=$JOBFILE"
@@ -44,6 +47,7 @@ echo "time_limit_minutes=${SLURM_TIMELIMIT:-unset}"
 echo "cpus_per_task=${SLURM_CPUS_PER_TASK:-unset}"
 echo "mem_per_node_mb=${SLURM_MEM_PER_NODE:-unset}"
 echo "threads_per_run=$THREADS_PER_RUN"
+echo "julia_project=${JULIA_PROJECT}"
 
 if [[ -n "${SLURM_CPUS_PER_TASK:-}" ]] && (( THREADS_PER_RUN > SLURM_CPUS_PER_TASK )); then
   echo "Warning: threads_per_run ($THREADS_PER_RUN) > cpus_per_task (${SLURM_CPUS_PER_TASK}); runs may serialize." >&2

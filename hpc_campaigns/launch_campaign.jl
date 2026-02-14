@@ -106,7 +106,7 @@ function main()
             println(io, join([run_id, run_dir, params_path, app_script_abs, "PENDING"], ","))
         end
         open(jobfile_path, "a") do io
-            println(io, "julia $(shell_quote(app_script_abs)) $(shell_quote(params_path))")
+            println(io, "julia --project=$(shell_quote(repo_root)) $(shell_quote(app_script_abs)) $(shell_quote(params_path))")
         end
         open(run_dirs_path, "a") do io
             println(io, run_dir)
