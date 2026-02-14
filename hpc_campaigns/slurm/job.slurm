@@ -11,10 +11,10 @@
 # Override at submit time when needed, e.g.:
 #   sbatch -p grant -t 4-00:00:00 --mem=64G --array=1-N hpc_campaigns/slurm/job.slurm <run_root> [threads_per_run]
 
-set -euo pipefail
+set -euo pipefail # Exit on error, treat unset variables as errors, and fail on pipeline errors.
 
-RUN_ROOT="${1:?Usage: sbatch --array=1-N hpc_campaigns/slurm/job.slurm <campaign_run_root> [threads_per_run]}"
-THREADS_PER_RUN="${2:-1}"
+RUN_ROOT="${1:?Usage: sbatch --array=1-N hpc_campaigns/slurm/job.slurm <campaign_run_root> [threads_per_run]}" # The directory containing the jobfile and campaign data for this run.
+THREADS_PER_RUN="${2:-1}" 
 JOBFILE="${RUN_ROOT}/jobfile"
 
 if [[ ! -f "$JOBFILE" ]]; then
@@ -32,7 +32,12 @@ if ! command -v hpc_multilauncher >/dev/null 2>&1; then
   exit 1
 fi
 
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+REPO_ROOT="${BHM_REPO_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
+if [[ ! -f "${REPO_ROOT}/Project.toml" ]]; then
+  echo "Unable to determine repository root (missing Project.toml): ${REPO_ROOT}" >&2
+  echo "Set BHM_REPO_ROOT via submit_multilauncher.sh or submit with --export=ALL,BHM_REPO_ROOT=/path/to/repo" >&2
+  exit 1
+fi
 cd "$REPO_ROOT"
 
 # Ensure campaign commands use this repository's Julia environment by default.

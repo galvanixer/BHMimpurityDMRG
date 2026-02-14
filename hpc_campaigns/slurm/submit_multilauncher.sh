@@ -146,7 +146,7 @@ fi
 
 # Submit a 1-based contiguous array range; job.slurm uses SLURM_ARRAY_TASK_ID.
 ARRAY_SPEC="1-${N_SUBJOBS}"
-SBATCH_ARGS=(--array="$ARRAY_SPEC")
+SBATCH_ARGS=(--array="$ARRAY_SPEC" --export="ALL,BHM_REPO_ROOT=${REPO_ROOT}")
 ACCOUNT_TO_USE=""
 ACCOUNT_ENV_HINT=""
 PARTITION_KIND=""
@@ -206,6 +206,7 @@ echo "threads_per_run:  $THREADS_PER_RUN"
 echo "array spec:       $ARRAY_SPEC"
 echo "job script:       $JOB_SCRIPT"
 echo "run root:         $RUN_ROOT"
+echo "repo root:        $REPO_ROOT"
 echo "partition:        ${PARTITION:-<job.slurm default>}"
 echo "account_name:     ${ACCOUNT_NAME:-<auto>}"
 if [[ -n "$ACCOUNT_TO_USE" ]]; then
