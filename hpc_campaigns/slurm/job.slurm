@@ -2,8 +2,8 @@
 #SBATCH --job-name=bhm-dmrg
 #SBATCH --partition=public
 #SBATCH --time=1-00:00:00
-#SBATCH --cpus-per-task=8
-#SBATCH --mem=32G
+#SBATCH --cpus-per-task=1
+#SBATCH --mem=8G
 #SBATCH --requeue
 #SBATCH --output=slurm-%A_%a.out
 

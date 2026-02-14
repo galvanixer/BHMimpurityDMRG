@@ -33,3 +33,6 @@ Thumbs.db
 # Temporary
 tmp/
 runs/
+
+# Local HPC credentials
+hpc_campaigns/slurm/credentials.local.sh
