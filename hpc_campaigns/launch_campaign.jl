@@ -13,6 +13,10 @@ using .YAMLHelpers: set_nested!
 using .YAMLHelpers: sweep_assignments
 using .YAMLHelpers: write_yaml_ordered
 
+function shell_quote(s::AbstractString)
+    return "'" * replace(String(s), "'" => "'\"'\"'") * "'"
+end
+
 function apply_overrides!(cfg::AbstractDict, overrides::AbstractDict)
     for (k, v) in overrides
         set_nested!(cfg, String(k), v)
@@ -39,7 +43,7 @@ function main()
     end
     output_root = isabspath(output_root_raw) ? output_root_raw :
                   abspath(joinpath(dirname(campaign_file), output_root_raw))
-    app_script = get(campaign, "app_script", "scripts/solve_ground_state.jl")
+    app_script = String(get(campaign, "app_script", "scripts/solve_ground_state.jl"))
     params_filename = get(campaign, "params_filename", "parameters.yaml")
 
     base_config_path = haskey(c, "base_config") ? String(c["base_config"]) :
@@ -53,6 +57,13 @@ function main()
     end
     isfile(base_config_abs) || error("Base config not found: $base_config_abs")
     base_cfg = load_ordered_yaml(base_config_abs)
+    app_script_abs = if isabspath(app_script)
+        app_script
+    else
+        by_campaign = abspath(joinpath(dirname(campaign_file), app_script))
+        isfile(by_campaign) ? by_campaign : abspath(joinpath(repo_root, app_script))
+    end
+    isfile(app_script_abs) || error("App script not found: $app_script_abs")
 
     overrides = haskey(c, "overrides") ? as_dict(c["overrides"]) : OrderedDict{String,Any}()
     sweep = haskey(c, "sweep") ? as_dict(c["sweep"]) : OrderedDict{String,Any}()
@@ -61,11 +72,13 @@ function main()
     campaign_dir = joinpath(output_root, campaign_name)
     mkpath(campaign_dir)
 
-    index_path = joinpath(campaign_dir, "index.csv")
+    index_path = joinpath(campaign_dir, "runs.csv")
+    jobfile_path = joinpath(campaign_dir, "jobfile")
     run_dirs_path = joinpath(campaign_dir, "run_dirs.txt")
     open(index_path, "w") do io
         println(io, "run_id,run_dir,params_path,app_script,status")
     end
+    open(jobfile_path, "w") do _ end
     open(run_dirs_path, "w") do _ end
 
     for (i, assign) in enumerate(assigns)
@@ -90,7 +103,10 @@ function main()
         write_yaml_ordered(params_path, cfg; reference=base_cfg, inline_keys=["maxdim"])
 
         open(index_path, "a") do io
-            println(io, join([run_id, run_dir, params_path, app_script, "PENDING"], ","))
+            println(io, join([run_id, run_dir, params_path, app_script_abs, "PENDING"], ","))
+        end
+        open(jobfile_path, "a") do io
+            println(io, "julia $(shell_quote(app_script_abs)) $(shell_quote(params_path))")
         end
         open(run_dirs_path, "a") do io
             println(io, run_dir)
@@ -101,9 +117,10 @@ function main()
     println("  name: ", campaign_name)
     println("  runs: ", length(assigns))
     println("  dir:  ", campaign_dir)
-    println("  index:", index_path)
+    println("  runs_csv: ", index_path)
+    println("  jobfile: ", jobfile_path)
     println("Next step:")
-    println("  bash hpc_campaigns/slurm/submit_array.sh ", campaign_dir)
+    println("  bash hpc_campaigns/slurm/submit_multilauncher.sh ", campaign_dir)
 end
 
 main()
