@@ -7,26 +7,29 @@ set -euo pipefail
 #
 # Args:
 #   1) run_root        : campaign directory containing "jobfile" (required)
-#   2) n_subjobs       : Slurm array task count; 0 means "auto = one task"
+#   2) num_array_tasks : Slurm array task count; omit or set 0 for auto
+#                        auto = ceil(jobfile_lines / 24) using 24-core standard nodes
+#                        On CAIUS full-node partitions this is effectively the node count.
 #   3) threads_per_run : CPU threads used by each launched command inside a task
-#   4) partition       : optional submit override (e.g., public, grant, publicgpu, grantgpu)
-#   5) cpus_per_task   : optional explicit Slurm CPU request per array task
+#   4) cpus_per_task   : Slurm CPU request per array task (default: 24)
+#   5) partition       : optional submit override (e.g., public, grant, publicgpu, grantgpu)
 #   6) account_name    : optional account selector for grant/grantgpu
 #   7) job_script      : optional alternate Slurm worker script path
 # Order:
-#   <run_root> [n_subjobs] [threads_per_run] [partition] [cpus_per_task] [account_name] [job_script]
+#   <run_root> [num_array_tasks] [threads_per_run] [cpus_per_task] [partition] [account_name] [job_script]
 #                        - profile key (e.g., francesco -> CAIUS_GRANT_ACCOUNT_FRANCESCO)
 #                        - direct account via acct:<account_id> (e.g., acct:g2025a457b)
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
-LOCAL_CREDENTIALS_FILE="${SCRIPT_DIR}/credentials.local.sh"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)" # Absolute directory of this script, used for resolving relative paths reliably.
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)" # Repository root, assumed to contain Project.toml. Can be overridden by BHM_REPO_ROOT env var.
+LOCAL_CREDENTIALS_FILE="${SCRIPT_DIR}/credentials.local.sh" # Optional local credentials file, kept out of git, for partition-bound accounts.
+STANDARD_NODE_CORES=24 # Standard CPU cores per node on CAIUS; used for auto array task calculation. Adjust if using a different cluster with different node sizes.
 
-RUN_ROOT="${1:?Usage: bash hpc_campaigns/slurm/submit_multilauncher.sh <campaign_run_root> [n_subjobs] [threads_per_run] [partition] [cpus_per_task] [account_name] [job_script]}"
-N_SUBJOBS="${2:-0}"
+RUN_ROOT="${1:?Usage: bash hpc_campaigns/slurm/submit_multilauncher.sh <campaign_run_root> [num_array_tasks] [threads_per_run] [cpus_per_task] [partition] [account_name] [job_script]}"
+NUM_ARRAY_TASKS_RAW="${2:-}"
 THREADS_PER_RUN="${3:-1}"
-PARTITION="${4:-}"
-CPUS_PER_TASK_REQUEST="${5:-}"
+CPUS_PER_TASK_REQUEST="${4:-$STANDARD_NODE_CORES}"
+PARTITION="${5:-}"
 ACCOUNT_NAME="${6:-}"
 JOB_SCRIPT_RAW="${7:-hpc_campaigns/slurm/job.slurm}"
 JOBFILE="${RUN_ROOT}/jobfile"
@@ -125,8 +128,8 @@ if [[ ! "$THREADS_PER_RUN" =~ ^[1-9][0-9]*$ ]]; then
   exit 1
 fi
 
-if [[ -n "$CPUS_PER_TASK_REQUEST" ]] && [[ ! "$CPUS_PER_TASK_REQUEST" =~ ^[1-9][0-9]*$ ]]; then
-  echo "cpus_per_task must be a positive integer when provided, got: $CPUS_PER_TASK_REQUEST" >&2
+if [[ ! "$CPUS_PER_TASK_REQUEST" =~ ^[1-9][0-9]*$ ]]; then
+  echo "cpus_per_task must be a positive integer, got: $CPUS_PER_TASK_REQUEST" >&2
   exit 1
 fi
 
@@ -137,33 +140,34 @@ if (( N_CMDS <= 0 )); then
   exit 1
 fi
 
-if [[ ! "$N_SUBJOBS" =~ ^[0-9]+$ ]]; then
-  echo "n_subjobs must be a non-negative integer, got: $N_SUBJOBS" >&2
+if [[ -n "$NUM_ARRAY_TASKS_RAW" ]] && [[ ! "$NUM_ARRAY_TASKS_RAW" =~ ^[0-9]+$ ]]; then
+  echo "num_array_tasks must be a non-negative integer, got: $NUM_ARRAY_TASKS_RAW" >&2
   exit 1
 fi
 
-# n_subjobs policy:
-# - 0: auto-pack into one array task. On full-node clusters this avoids reserving
-#      many whole nodes when jobfile has many lines.
+# num_array_tasks policy:
+# - omitted or 0: auto = ceil(N_CMDS / 24), using 24-core standard node assumption.
 # - > N_CMDS: clamp to N_CMDS (never schedule more tasks than commands).
-if (( N_SUBJOBS == 0 )); then
-  N_SUBJOBS=1
+if [[ -z "$NUM_ARRAY_TASKS_RAW" || "$NUM_ARRAY_TASKS_RAW" == "0" ]]; then
+  NUM_ARRAY_TASKS="$(( (N_CMDS + STANDARD_NODE_CORES - 1) / STANDARD_NODE_CORES ))"
+  ARRAY_TASKS_SOURCE="auto ceil(commands/${STANDARD_NODE_CORES})"
+else
+  NUM_ARRAY_TASKS="$NUM_ARRAY_TASKS_RAW"
+  ARRAY_TASKS_SOURCE="user"
 fi
 
-if (( N_SUBJOBS > N_CMDS )); then
-  N_SUBJOBS=$N_CMDS
+if (( NUM_ARRAY_TASKS > N_CMDS )); then
+  NUM_ARRAY_TASKS=$N_CMDS
 fi
 
 # Submit a 1-based contiguous array range; job.slurm uses SLURM_ARRAY_TASK_ID.
-ARRAY_SPEC="1-${N_SUBJOBS}"
-SBATCH_ARGS=(--array="$ARRAY_SPEC" --export="ALL,BHM_REPO_ROOT=${REPO_ROOT}")
+# On CAIUS, each array task usually maps to one full node, so num_array_tasks ~= nodes.
+ARRAY_SPEC="1-${NUM_ARRAY_TASKS}"
+SBATCH_ARGS=(--array="$ARRAY_SPEC" --cpus-per-task="$CPUS_PER_TASK_REQUEST" --export="ALL,BHM_REPO_ROOT=${REPO_ROOT}")
 ACCOUNT_TO_USE=""
 ACCOUNT_ENV_HINT=""
 PARTITION_KIND=""
-
-if [[ -n "$CPUS_PER_TASK_REQUEST" ]]; then
-  SBATCH_ARGS+=(--cpus-per-task="$CPUS_PER_TASK_REQUEST")
-fi
+TIME_LIMIT_OVERRIDE=""
 
 if [[ -n "$PARTITION" ]]; then
   if [[ ! "$PARTITION" =~ ^[A-Za-z0-9_-]+$ ]]; then
@@ -213,22 +217,41 @@ if [[ -n "$PARTITION" ]]; then
   fi
 fi
 
+# Partition-based walltime defaults. Submit-time --time overrides job.slurm header.
+case "${PARTITION:-public}" in
+  public|publicgpu)
+    TIME_LIMIT_OVERRIDE="1-00:00:00"
+    ;;
+  grant|grantgpu)
+    TIME_LIMIT_OVERRIDE="4-00:00:00"
+    ;;
+  *)
+    TIME_LIMIT_OVERRIDE=""
+    ;;
+esac
+
+if [[ -n "$TIME_LIMIT_OVERRIDE" ]]; then
+  SBATCH_ARGS+=(--time="$TIME_LIMIT_OVERRIDE")
+fi
+
 echo "Submitting multilaunch campaign"
 echo "commands:         $N_CMDS"
-echo "subjobs (array):  $N_SUBJOBS"
+echo "num_array_tasks:  $NUM_ARRAY_TASKS"
+echo "array_tasks_src:  $ARRAY_TASKS_SOURCE"
 echo "threads_per_run:  $THREADS_PER_RUN"
 echo "array spec:       $ARRAY_SPEC"
 echo "job script:       $JOB_SCRIPT"
 echo "run root:         $RUN_ROOT"
 echo "repo root:        $REPO_ROOT"
 echo "partition:        ${PARTITION:-<job.slurm default>}"
-echo "cpus_per_task:    ${CPUS_PER_TASK_REQUEST:-<job.slurm default>}"
+echo "time_limit:       ${TIME_LIMIT_OVERRIDE:-<job.slurm default>}"
+echo "cpus_per_task:    $CPUS_PER_TASK_REQUEST"
 echo "account_name:     ${ACCOUNT_NAME:-<auto>}"
 if [[ -n "$ACCOUNT_TO_USE" ]]; then
   echo "account:          $ACCOUNT_TO_USE"
 fi
-if (( N_SUBJOBS > 1 )); then
-  echo "note:             this cluster may allocate one full node per array task; n_subjobs=$N_SUBJOBS can reserve multiple full nodes"
+if (( NUM_ARRAY_TASKS > 1 )); then
+  echo "NOTE: this cluster may allocate one full node per array task; num_array_tasks=$NUM_ARRAY_TASKS can reserve multiple full nodes"
 fi
 
 # Forward run_root and threads_per_run as positional args to job.slurm.

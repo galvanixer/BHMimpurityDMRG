@@ -26,7 +26,7 @@ This folder contains HPC tooling to generate and submit many DMRG runs with a dy
    ```
    Optional arguments:
    ```bash
-   bash hpc_campaigns/slurm/submit_multilauncher.sh /absolute/path/to/runs/<campaign_name> <n_subjobs> <threads_per_run> [partition] [cpus_per_task]
+   bash hpc_campaigns/slurm/submit_multilauncher.sh /absolute/path/to/runs/<campaign_name> [num_array_tasks] [threads_per_run] [cpus_per_task] [partition] [account_name] [job_script]
    ```
 
 ## Generated Structure
@@ -41,6 +41,40 @@ It also creates:
 - `runs/<campaign_name>/runs.csv`
 - `runs/<campaign_name>/jobfile`
 - `runs/<campaign_name>/run_dirs.txt`
+
+## Seed Generation
+- `sweep.initial_state.seed` supports:
+  - explicit list (existing behavior), e.g. `[14061990, 14061991]`
+  - `AUTO` (new behavior)
+- When set to `AUTO`, define `seed_generation` in campaign YAML:
+  - `mode: random|sequential`
+  - `count: <integer>|prompt`
+  - random mode keys: `min`, `max`, optional `generator_seed`
+  - sequential mode keys: `start`, `step`
+- If `count: prompt`, `launch_campaign.jl` asks interactively for number of seeds.
+- For non-interactive runs, set `count` to an integer.
+
+## Linked Sweep (Non-Cartesian)
+- Use `linked_sweep` for variables that must move together by index.
+- All arrays in `linked_sweep` must have the same length.
+- `sweep` is still Cartesian.
+- Final runs are: `Cartesian(sweep) x linked_sweep_rows`.
+
+Example:
+```yaml
+sweep:
+  hamiltonian.mu_b: [3.8, 4.0]
+
+linked_sweep:
+  lattice.L: [32, 64]
+  initial_state.Na_total: [32, 64]
+```
+
+This gives 4 runs total:
+- (`mu_b=3.8`, `L=32`, `Na_total=32`)
+- (`mu_b=3.8`, `L=64`, `Na_total=64`)
+- (`mu_b=4.0`, `L=32`, `Na_total=32`)
+- (`mu_b=4.0`, `L=64`, `Na_total=64`)
 
 ## Notes
 - You can set run-root in 3 ways (priority order):

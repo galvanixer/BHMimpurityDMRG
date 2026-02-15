@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-#SBATCH --job-name=bhm-dmrg
+#SBATCH --job-name=BHMimp-dmrg
 #SBATCH --partition=public
 #SBATCH --time=1-00:00:00
-#SBATCH --cpus-per-task=1
+#SBATCH --cpus-per-task=24
 #SBATCH --mem=0
 #SBATCH --requeue
 #SBATCH --output=slurm-%A_%a.out

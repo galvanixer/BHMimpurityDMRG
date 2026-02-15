@@ -27,32 +27,35 @@ bash hpc_campaigns/slurm/submit_multilauncher.sh /absolute/path/to/runs/<campaig
 
 Submit with explicit CPU request per array task:
 ```bash
-bash hpc_campaigns/slurm/submit_multilauncher.sh /absolute/path/to/runs/<campaign_name> 1 1 public 25
+bash hpc_campaigns/slurm/submit_multilauncher.sh /absolute/path/to/runs/<campaign_name> 1 1 25 public
 ```
 
 Submit to `grant` with account credential:
 ```bash
-bash hpc_campaigns/slurm/submit_multilauncher.sh /absolute/path/to/runs/<campaign_name> 16 2 grant 16
+bash hpc_campaigns/slurm/submit_multilauncher.sh /absolute/path/to/runs/<campaign_name> 16 2 16 grant
 ```
 
 Submit to `grant` choosing a named account profile:
 ```bash
-bash hpc_campaigns/slurm/submit_multilauncher.sh /absolute/path/to/runs/<campaign_name> 16 2 grant 16 francesco
+bash hpc_campaigns/slurm/submit_multilauncher.sh /absolute/path/to/runs/<campaign_name> 16 2 16 grant francesco
 ```
 
 Arguments:
 - `run_root` (required): campaign directory containing `jobfile`.
-- `n_subjobs` (optional): number of Slurm array tasks. `0` means auto (`1` task).
+- `num_array_tasks` (optional): number of Slurm array tasks.
+  - default (or `0`): `ceil(jobfile_lines / 24)`
+  - on CAIUS full-node partitions this is effectively the number of nodes.
 - `threads_per_run` (optional): expected CPU threads per command, used to compute launcher slots.
+- `cpus_per_task` (optional): Slurm `--cpus-per-task` for each array task (default: `24`).
 - `partition` (optional): submit-time partition override (`public`, `grant`, `publicgpu`, `grantgpu`, ...).
-- `cpus_per_task` (optional): explicit Slurm `--cpus-per-task` request for each array task.
+  - walltime defaults by partition: `public/publicgpu -> 1-00:00:00`, `grant/grantgpu -> 4-00:00:00`
 - `account_name` (optional): selector for account mapping when using `grant`/`grantgpu`.
   - `francesco` -> looks for `CAIUS_GRANT_ACCOUNT_FRANCESCO` (or legacy equivalent)
   - `acct:g2025a457b` -> uses direct account id without lookup
 - `job_script` (optional): alternate Slurm script path.
 
 Preferred argument order:
-`<run_root> [n_subjobs] [threads_per_run] [partition] [cpus_per_task] [account_name] [job_script]`
+`<run_root> [num_array_tasks] [threads_per_run] [cpus_per_task] [partition] [account_name] [job_script]`
 
 ## Default Request Profile
 If you run:
@@ -60,23 +63,32 @@ If you run:
 bash hpc_campaigns/slurm/submit_multilauncher.sh <run_root>
 ```
 the effective request is:
-- array: `--array=1-1` (`n_subjobs=0` auto mode -> one array task)
+- array: `--array=1-K`, where `K=ceil(n_commands/24)` (`num_array_tasks` omitted or `0`)
 - partition: `public` (from `job.slurm`)
-- time limit: `1-00:00:00` (from `job.slurm`)
-- cpus per task: `1` (from `job.slurm`)
+- time limit: `1-00:00:00` (submit default for `public`; `grant`/`grantgpu` use `4-00:00:00`)
+- cpus per task: `24` (submit default)
 - memory: `--mem=0` (all memory on allocated node)
-- launcher slots: `floor(cpu_budget / threads_per_run)` where `cpu_budget` is capped by `cpus_per_task` when provided.
+- launcher slots per array task: `floor(cpus_per_task / threads_per_run)`
 
 To request a different CPU count explicitly, pass `cpus_per_task`:
 ```bash
-bash hpc_campaigns/slurm/submit_multilauncher.sh <run_root> 1 1 public 25
+bash hpc_campaigns/slurm/submit_multilauncher.sh <run_root> 0 1 25 public
 ```
 This adds `--cpus-per-task=25` at submit time.
+
+## Partition Time Defaults
+`submit_multilauncher.sh` applies submit-time walltime defaults:
+- `public`: `1-00:00:00`
+- `publicgpu`: `1-00:00:00`
+- `grant`: `4-00:00:00`
+- `grantgpu`: `4-00:00:00`
+
+For other partitions, no time override is added and `job.slurm` header is used.
 
 ## Example: 25 Jobfile Lines
 If `<run_root>/jobfile` has 25 lines and you want up to 25 concurrent single-thread runs on one array task:
 ```bash
-bash hpc_campaigns/slurm/submit_multilauncher.sh <run_root> 1 1 public 25
+bash hpc_campaigns/slurm/submit_multilauncher.sh <run_root> 1 1 25 public
 ```
 
 What this requests:
@@ -142,10 +154,10 @@ Template file: `hpc_campaigns/slurm/credentials.local.sh.example`
 
 ## Full-Node Scheduling Note
 On CAIUS partitions that allocate full nodes per array task, prefer:
-- `n_subjobs=0` (auto => 1 task)
+- omitted `num_array_tasks` (or `0`) for auto `ceil(jobfile_lines/24)` node count
 - set `cpus_per_task` to the number of concurrent CPU threads you want the launcher to use
 - tune `threads_per_run` to match your per-command threading needs
-- increase `n_subjobs` only when you intentionally want multiple full nodes
+- increase `num_array_tasks` only when you intentionally want multiple full nodes
 - dynamic launcher scheduling avoids static chunk imbalance between heterogenous nodes
 
 ## Cluster Settings

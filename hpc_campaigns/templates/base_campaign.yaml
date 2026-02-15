@@ -1,24 +1,32 @@
 campaign:
   name: "example_deep_mi_scan"
-  # Relative path (resolved from this campaign file directory):
-  output_root: "runs"
-  # Optional absolute path (takes priority over output_root):
-  # output_root_abs: "/absolute/path/to/runs"
+  output_root: "runs"  # relative path (resolved from this campaign file directory)
+  # output_root_abs: "/absolute/path/to/runs"  # optional absolute path (takes priority over output_root)
   app_script: "scripts/solve_ground_state.jl"
   params_filename: "parameters.yaml"
 
-# Base config copied for each run before applying overrides/sweep values.
-base_config: "configs/parameters.yaml"
+base_config: "configs/parameters.yaml"  # base config copied for each run before applying overrides/sweep values
 
-# Applied to every run (dot-path keys).
-overrides:
+overrides:  # applied to every run (dot-path keys)
   io.console_log: false
   dmrg.checkpoint_every: 10
   dmrg.checkpoint_save_densities: true
   dmrg.checkpoint_density_every: 2
 
-# Cartesian sweep (dot-path keys).
-sweep:
+sweep:  # Cartesian sweep (dot-path keys)
   hamiltonian.mu_b: [3.8, 4.0, 4.2]
   hamiltonian.U_ab: [-1.5, -2.0, -2.5]
-  initial_state.seed: [14061990, 14061991]
+  initial_state.seed: AUTO
+
+linked_sweep:  # zipped sweep (same-index values are linked, not Cartesian with each other)
+  # lattice.L: [32, 64]
+  # initial_state.Na_total: [32, 64]
+
+seed_generation:  # optional automatic seed generation when sweep.initial_state.seed == AUTO
+  mode: random  # random | sequential
+  count: prompt  # integer or prompt
+  start: 14061990  # used by mode=sequential
+  step: 1  # used by mode=sequential
+  min: 1  # used by mode=random
+  max: 2147483647  # used by mode=random
+  # generator_seed: 42  # optional for reproducible random seed generation

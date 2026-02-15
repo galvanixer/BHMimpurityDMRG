@@ -32,7 +32,7 @@ Inside each task, the dynamic launcher takes the next pending command from `<run
 
 ## 2) What does `--cpus-per-task` mean?
 
-`#SBATCH --cpus-per-task=1` requests 1 CPU core as the per-task baseline in current defaults.
+Current submit defaults request `--cpus-per-task=24` (24-core standard node assumption).
 
 The dynamic launcher uses available cores (via Slurm env vars) to decide how many commands to run in parallel:
 - first cap: `SLURM_CPUS_PER_TASK` when set
@@ -80,9 +80,9 @@ Use whichever matches your cluster policy and workload shape.
 
 ## 6) Practical tuning knobs
 
-- `n_subjobs` (submit script arg): number of array tasks.
+- `num_array_tasks` (submit script arg): number of array tasks (effectively node count on CAIUS full-node partitions); default is `ceil(jobfile_lines/24)`.
 - `threads_per_run` (submit script arg): cores needed by one command.
-- `--cpus-per-task` (job header): cores available inside each array task.
+- `cpus_per_task` (submit script arg): cores available inside each array task; default is `24`.
 
 These three control throughput and memory pressure together.
 
@@ -93,4 +93,4 @@ Choose settings so that:
 - node CPU stays busy
 - queue wait remains acceptable
 
-Then adjust `n_subjobs` and `threads_per_run` based on observed runtime and memory usage.
+Then adjust `num_array_tasks` and `threads_per_run` based on observed runtime and memory usage.
