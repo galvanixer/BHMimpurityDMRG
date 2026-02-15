@@ -3,7 +3,7 @@
 #SBATCH --partition=public
 #SBATCH --time=1-00:00:00
 #SBATCH --cpus-per-task=24
-#SBATCH --mem=0
+#SBATCH --mem_per_cpu=4G
 #SBATCH --requeue
 #SBATCH --output=slurm-%A_%a.out
 

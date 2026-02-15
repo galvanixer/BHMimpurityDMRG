@@ -8,6 +8,16 @@ using HDF5
 using Logging
 using SHA
 
+function run_dmrg_to_log(log_path::AbstractString; kwargs...)
+    open(log_path, "a") do io
+        return redirect_stdout(io) do
+            redirect_stderr(io) do
+                return run_dmrg(; kwargs...)
+            end
+        end
+    end
+end
+
 function main()
     params_path = length(ARGS) >= 1 ? ARGS[1] :
                   get(ENV, "PARAMS", joinpath(@__DIR__, "..", "configs", "parameters.yaml"))
@@ -42,7 +52,11 @@ function main()
                 @info "Using cached state (hash matched)" state_path=state_path
             else
                 @info "Cached state missing/mismatched hash; running DMRG" state_path=state_path
-                energy, psi, sites, _ = run_dmrg(; checkpoint_params_path=params_path, dmrg_cfg...)
+                energy, psi, sites, _ = run_dmrg_to_log(
+                    logcfg.log_path;
+                    checkpoint_params_path=params_path,
+                    dmrg_cfg...
+                )
                 if save_state_flag
                     na_tmp, nb_tmp = measure_densities(psi, sites)
                     save_state(
@@ -62,7 +76,11 @@ function main()
             end
         else
             @info "No cached state found; running DMRG" state_path=state_path
-            energy, psi, sites, _ = run_dmrg(; checkpoint_params_path=params_path, dmrg_cfg...)
+            energy, psi, sites, _ = run_dmrg_to_log(
+                logcfg.log_path;
+                checkpoint_params_path=params_path,
+                dmrg_cfg...
+            )
             if save_state_flag
                 na_tmp, nb_tmp = measure_densities(psi, sites)
                 save_state(
