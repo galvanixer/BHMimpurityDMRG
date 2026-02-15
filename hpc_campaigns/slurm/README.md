@@ -25,28 +25,71 @@ Submit with explicit array size and threads per run:
 bash hpc_campaigns/slurm/submit_multilauncher.sh /absolute/path/to/runs/<campaign_name> 16 2
 ```
 
+Submit with explicit CPU request per array task:
+```bash
+bash hpc_campaigns/slurm/submit_multilauncher.sh /absolute/path/to/runs/<campaign_name> 1 1 public 25
+```
+
 Submit to `grant` with account credential:
 ```bash
-bash hpc_campaigns/slurm/submit_multilauncher.sh /absolute/path/to/runs/<campaign_name> 16 2 grant
+bash hpc_campaigns/slurm/submit_multilauncher.sh /absolute/path/to/runs/<campaign_name> 16 2 grant 16
 ```
 
 Submit to `grant` choosing a named account profile:
 ```bash
-bash hpc_campaigns/slurm/submit_multilauncher.sh /absolute/path/to/runs/<campaign_name> 16 2 grant francesco
+bash hpc_campaigns/slurm/submit_multilauncher.sh /absolute/path/to/runs/<campaign_name> 16 2 grant 16 francesco
 ```
 
 Arguments:
 - `run_root` (required): campaign directory containing `jobfile`.
-- `n_subjobs` (optional): number of Slurm array tasks. `0` means auto full-node packing (`1` task).
-- `threads_per_run` (optional): expected CPU threads per command, used to set per-node parallel slots.
+- `n_subjobs` (optional): number of Slurm array tasks. `0` means auto (`1` task).
+- `threads_per_run` (optional): expected CPU threads per command, used to compute launcher slots.
 - `partition` (optional): submit-time partition override (`public`, `grant`, `publicgpu`, `grantgpu`, ...).
+- `cpus_per_task` (optional): explicit Slurm `--cpus-per-task` request for each array task.
 - `account_name` (optional): selector for account mapping when using `grant`/`grantgpu`.
   - `francesco` -> looks for `CAIUS_GRANT_ACCOUNT_FRANCESCO` (or legacy equivalent)
   - `acct:g2025a457b` -> uses direct account id without lookup
 - `job_script` (optional): alternate Slurm script path.
 
 Preferred argument order:
-`<run_root> [n_subjobs] [threads_per_run] [partition] [account_name] [job_script]`
+`<run_root> [n_subjobs] [threads_per_run] [partition] [cpus_per_task] [account_name] [job_script]`
+
+## Default Request Profile
+If you run:
+```bash
+bash hpc_campaigns/slurm/submit_multilauncher.sh <run_root>
+```
+the effective request is:
+- array: `--array=1-1` (`n_subjobs=0` auto mode -> one array task)
+- partition: `public` (from `job.slurm`)
+- time limit: `1-00:00:00` (from `job.slurm`)
+- cpus per task: `1` (from `job.slurm`)
+- memory: `--mem=0` (all memory on allocated node)
+- launcher slots: `floor(cpu_budget / threads_per_run)` where `cpu_budget` is capped by `cpus_per_task` when provided.
+
+To request a different CPU count explicitly, pass `cpus_per_task`:
+```bash
+bash hpc_campaigns/slurm/submit_multilauncher.sh <run_root> 1 1 public 25
+```
+This adds `--cpus-per-task=25` at submit time.
+
+## Example: 25 Jobfile Lines
+If `<run_root>/jobfile` has 25 lines and you want up to 25 concurrent single-thread runs on one array task:
+```bash
+bash hpc_campaigns/slurm/submit_multilauncher.sh <run_root> 1 1 public 25
+```
+
+What this requests:
+- `--array=1-1`
+- `--cpus-per-task=25`
+- `--partition=public`
+- `--mem=0` (from `job.slurm`)
+
+What launcher does:
+- `threads_per_run=1`
+- `cpu_budget=25`
+- `slots=floor(25/1)=25`
+- up to 25 commands can run concurrently; extra commands queue.
 
 ## Credentials For `grant` / `grantgpu`
 `submit_multilauncher.sh` can auto-attach account credentials when you pass:
@@ -99,7 +142,8 @@ Template file: `hpc_campaigns/slurm/credentials.local.sh.example`
 
 ## Full-Node Scheduling Note
 On CAIUS partitions that allocate full nodes per array task, prefer:
-- `n_subjobs=0` (auto => 1 task, pack work inside node)
+- `n_subjobs=0` (auto => 1 task)
+- set `cpus_per_task` to the number of concurrent CPU threads you want the launcher to use
 - tune `threads_per_run` to match your per-command threading needs
 - increase `n_subjobs` only when you intentionally want multiple full nodes
 - dynamic launcher scheduling avoids static chunk imbalance between heterogenous nodes

@@ -75,13 +75,29 @@ get_next_line_number() {
   printf "%s\n" "$next"
 }
 
-CPUS_ON_NODE="${SLURM_CPUS_ON_NODE:-${SLURM_CPUS_PER_TASK:-1}}"
-PARALLEL_SLOTS=$((CPUS_ON_NODE / THREADS_PER_RUN))
+CPUS_PER_TASK="${SLURM_CPUS_PER_TASK:-}"
+CPUS_ON_NODE="${SLURM_CPUS_ON_NODE:-}"
+
+if [[ -n "$CPUS_PER_TASK" && -n "$CPUS_ON_NODE" ]]; then
+  if (( CPUS_PER_TASK < CPUS_ON_NODE )); then
+    CPU_BUDGET="$CPUS_PER_TASK"
+  else
+    CPU_BUDGET="$CPUS_ON_NODE"
+  fi
+elif [[ -n "$CPUS_PER_TASK" ]]; then
+  CPU_BUDGET="$CPUS_PER_TASK"
+elif [[ -n "$CPUS_ON_NODE" ]]; then
+  CPU_BUDGET="$CPUS_ON_NODE"
+else
+  CPU_BUDGET=1
+fi
+
+PARALLEL_SLOTS=$((CPU_BUDGET / THREADS_PER_RUN))
 if (( PARALLEL_SLOTS < 1 )); then
   PARALLEL_SLOTS=1
 fi
 
-echo "dynamic_multilauncher: commands=${TOTAL_CMDS} cpus_on_node=${CPUS_ON_NODE} threads_per_run=${THREADS_PER_RUN} slots=${PARALLEL_SLOTS}"
+echo "dynamic_multilauncher: commands=${TOTAL_CMDS} cpu_budget=${CPU_BUDGET} cpus_per_task=${CPUS_PER_TASK:-unset} cpus_on_node=${CPUS_ON_NODE:-unset} threads_per_run=${THREADS_PER_RUN} slots=${PARALLEL_SLOTS}"
 echo "dynamic_multilauncher: state_dir=${STATE_DIR}"
 
 worker_loop() {

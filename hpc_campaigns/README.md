@@ -26,7 +26,7 @@ This folder contains HPC tooling to generate and submit many DMRG runs with a dy
    ```
    Optional arguments:
    ```bash
-   bash hpc_campaigns/slurm/submit_multilauncher.sh /absolute/path/to/runs/<campaign_name> <n_subjobs> <threads_per_run>
+   bash hpc_campaigns/slurm/submit_multilauncher.sh /absolute/path/to/runs/<campaign_name> <n_subjobs> <threads_per_run> [partition] [cpus_per_task]
    ```
 
 ## Generated Structure

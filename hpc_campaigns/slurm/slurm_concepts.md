@@ -35,7 +35,9 @@ Inside each task, the dynamic launcher takes the next pending command from `<run
 `#SBATCH --cpus-per-task=1` requests 1 CPU core as the per-task baseline in current defaults.
 
 The dynamic launcher uses available cores (via Slurm env vars) to decide how many commands to run in parallel:
-- parallel jobs per task ≈ `allocated_cpus / threads_per_run`
+- first cap: `SLURM_CPUS_PER_TASK` when set
+- fallback: `SLURM_CPUS_ON_NODE`
+- parallel jobs per task ≈ `cpu_budget / threads_per_run`
 
 So increasing `--cpus-per-task` can increase per-task parallel throughput.
 

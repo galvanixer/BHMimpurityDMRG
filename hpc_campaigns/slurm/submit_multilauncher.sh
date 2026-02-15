@@ -7,13 +7,14 @@ set -euo pipefail
 #
 # Args:
 #   1) run_root        : campaign directory containing "jobfile" (required)
-#   2) n_subjobs       : Slurm array task count; 0 means "auto = one task (full-node packing)"
+#   2) n_subjobs       : Slurm array task count; 0 means "auto = one task"
 #   3) threads_per_run : CPU threads used by each launched command inside a task
 #   4) partition       : optional submit override (e.g., public, grant, publicgpu, grantgpu)
-#   5) account_name    : optional account selector for grant/grantgpu
-#   6) job_script      : optional alternate Slurm worker script path
+#   5) cpus_per_task   : optional explicit Slurm CPU request per array task
+#   6) account_name    : optional account selector for grant/grantgpu
+#   7) job_script      : optional alternate Slurm worker script path
 # Order:
-#   <run_root> [n_subjobs] [threads_per_run] [partition] [account_name] [job_script]
+#   <run_root> [n_subjobs] [threads_per_run] [partition] [cpus_per_task] [account_name] [job_script]
 #                        - profile key (e.g., francesco -> CAIUS_GRANT_ACCOUNT_FRANCESCO)
 #                        - direct account via acct:<account_id> (e.g., acct:g2025a457b)
 
@@ -21,12 +22,13 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 LOCAL_CREDENTIALS_FILE="${SCRIPT_DIR}/credentials.local.sh"
 
-RUN_ROOT="${1:?Usage: bash hpc_campaigns/slurm/submit_multilauncher.sh <campaign_run_root> [n_subjobs] [threads_per_run] [partition] [account_name] [job_script]}"
+RUN_ROOT="${1:?Usage: bash hpc_campaigns/slurm/submit_multilauncher.sh <campaign_run_root> [n_subjobs] [threads_per_run] [partition] [cpus_per_task] [account_name] [job_script]}"
 N_SUBJOBS="${2:-0}"
 THREADS_PER_RUN="${3:-1}"
 PARTITION="${4:-}"
-ACCOUNT_NAME="${5:-}"
-JOB_SCRIPT_RAW="${6:-hpc_campaigns/slurm/job.slurm}"
+CPUS_PER_TASK_REQUEST="${5:-}"
+ACCOUNT_NAME="${6:-}"
+JOB_SCRIPT_RAW="${7:-hpc_campaigns/slurm/job.slurm}"
 JOBFILE="${RUN_ROOT}/jobfile"
 
 # Optional local credentials (kept out of git) for partition-bound accounts.
@@ -123,6 +125,11 @@ if [[ ! "$THREADS_PER_RUN" =~ ^[1-9][0-9]*$ ]]; then
   exit 1
 fi
 
+if [[ -n "$CPUS_PER_TASK_REQUEST" ]] && [[ ! "$CPUS_PER_TASK_REQUEST" =~ ^[1-9][0-9]*$ ]]; then
+  echo "cpus_per_task must be a positive integer when provided, got: $CPUS_PER_TASK_REQUEST" >&2
+  exit 1
+fi
+
 # Number of commands in jobfile bounds useful array size.
 N_CMDS="$(awk 'END { print NR }' "$JOBFILE")"
 if (( N_CMDS <= 0 )); then
@@ -153,6 +160,10 @@ SBATCH_ARGS=(--array="$ARRAY_SPEC" --export="ALL,BHM_REPO_ROOT=${REPO_ROOT}")
 ACCOUNT_TO_USE=""
 ACCOUNT_ENV_HINT=""
 PARTITION_KIND=""
+
+if [[ -n "$CPUS_PER_TASK_REQUEST" ]]; then
+  SBATCH_ARGS+=(--cpus-per-task="$CPUS_PER_TASK_REQUEST")
+fi
 
 if [[ -n "$PARTITION" ]]; then
   if [[ ! "$PARTITION" =~ ^[A-Za-z0-9_-]+$ ]]; then
@@ -211,6 +222,7 @@ echo "job script:       $JOB_SCRIPT"
 echo "run root:         $RUN_ROOT"
 echo "repo root:        $REPO_ROOT"
 echo "partition:        ${PARTITION:-<job.slurm default>}"
+echo "cpus_per_task:    ${CPUS_PER_TASK_REQUEST:-<job.slurm default>}"
 echo "account_name:     ${ACCOUNT_NAME:-<auto>}"
 if [[ -n "$ACCOUNT_TO_USE" ]]; then
   echo "account:          $ACCOUNT_TO_USE"
