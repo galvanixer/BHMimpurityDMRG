@@ -3,15 +3,17 @@ set -euo pipefail
 
 # Submit a campaign "jobfile" through Slurm array tasks.
 # Each array task runs job.slurm, which calls:
-#   hpc_multilauncher <run_root>/jobfile <threads_per_run>
+#   dynamic_multilauncher.sh <run_root>/jobfile <threads_per_run>
 #
 # Args:
 #   1) run_root        : campaign directory containing "jobfile" (required)
-#   2) n_subjobs       : Slurm array task count; 0 means "auto = one task per command"
+#   2) n_subjobs       : Slurm array task count; 0 means "auto = one task (full-node packing)"
 #   3) threads_per_run : CPU threads used by each launched command inside a task
-#   4) job_script      : Slurm worker script path (defaults to hpc_campaigns/slurm/job.slurm)
-#   5) partition       : optional submit override (e.g., public, grant, publicgpu, grantgpu)
-#   6) account_name    : optional account selector for grant/grantgpu
+#   4) partition       : optional submit override (e.g., public, grant, publicgpu, grantgpu)
+#   5) account_name    : optional account selector for grant/grantgpu
+#   6) job_script      : optional alternate Slurm worker script path
+# Order:
+#   <run_root> [n_subjobs] [threads_per_run] [partition] [account_name] [job_script]
 #                        - profile key (e.g., francesco -> CAIUS_GRANT_ACCOUNT_FRANCESCO)
 #                        - direct account via acct:<account_id> (e.g., acct:g2025a457b)
 
@@ -19,12 +21,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 LOCAL_CREDENTIALS_FILE="${SCRIPT_DIR}/credentials.local.sh"
 
-RUN_ROOT="${1:?Usage: bash hpc_campaigns/slurm/submit_multilauncher.sh <campaign_run_root> [n_subjobs] [threads_per_run] [job_script] [partition] [account_name]}"
+RUN_ROOT="${1:?Usage: bash hpc_campaigns/slurm/submit_multilauncher.sh <campaign_run_root> [n_subjobs] [threads_per_run] [partition] [account_name] [job_script]}"
 N_SUBJOBS="${2:-0}"
 THREADS_PER_RUN="${3:-1}"
-JOB_SCRIPT_RAW="${4:-hpc_campaigns/slurm/job.slurm}"
-PARTITION="${5:-}"
-ACCOUNT_NAME="${6:-}"
+PARTITION="${4:-}"
+ACCOUNT_NAME="${5:-}"
+JOB_SCRIPT_RAW="${6:-hpc_campaigns/slurm/job.slurm}"
 JOBFILE="${RUN_ROOT}/jobfile"
 
 # Optional local credentials (kept out of git) for partition-bound accounts.
@@ -122,7 +124,7 @@ if [[ ! "$THREADS_PER_RUN" =~ ^[1-9][0-9]*$ ]]; then
 fi
 
 # Number of commands in jobfile bounds useful array size.
-N_CMDS=$(wc -l < "$JOBFILE")
+N_CMDS="$(awk 'END { print NR }' "$JOBFILE")"
 if (( N_CMDS <= 0 )); then
   echo "No commands found in $JOBFILE" >&2
   exit 1
@@ -134,10 +136,11 @@ if [[ ! "$N_SUBJOBS" =~ ^[0-9]+$ ]]; then
 fi
 
 # n_subjobs policy:
-# - 0: auto-expand to one array task per command.
+# - 0: auto-pack into one array task. On full-node clusters this avoids reserving
+#      many whole nodes when jobfile has many lines.
 # - > N_CMDS: clamp to N_CMDS (never schedule more tasks than commands).
 if (( N_SUBJOBS == 0 )); then
-  N_SUBJOBS=$N_CMDS
+  N_SUBJOBS=1
 fi
 
 if (( N_SUBJOBS > N_CMDS )); then
@@ -211,6 +214,9 @@ echo "partition:        ${PARTITION:-<job.slurm default>}"
 echo "account_name:     ${ACCOUNT_NAME:-<auto>}"
 if [[ -n "$ACCOUNT_TO_USE" ]]; then
   echo "account:          $ACCOUNT_TO_USE"
+fi
+if (( N_SUBJOBS > 1 )); then
+  echo "note:             this cluster may allocate one full node per array task; n_subjobs=$N_SUBJOBS can reserve multiple full nodes"
 fi
 
 # Forward run_root and threads_per_run as positional args to job.slurm.

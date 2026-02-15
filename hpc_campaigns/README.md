@@ -1,13 +1,14 @@
 # HPC Campaigns
 
-This folder contains HPC tooling to generate and submit many DMRG runs with `hpc_multilauncher`.
+This folder contains HPC tooling to generate and submit many DMRG runs with a dynamic Slurm launcher.
 
 ## Files
 - `hpc_campaigns/launch_campaign.jl`: generates run directories and per-run `parameters.yaml`.
 - `hpc_campaigns/yaml_helpers.jl`: ordered YAML load/write helpers used by campaign tooling.
 - `hpc_campaigns/templates/base_campaign.yaml`: example campaign definition.
-- `hpc_campaigns/slurm/job.slurm`: Slurm array worker that calls `hpc_multilauncher`.
-- `hpc_campaigns/slurm/submit_multilauncher.sh`: submits a multilauncher Slurm array.
+- `hpc_campaigns/slurm/job.slurm`: Slurm array worker that calls the dynamic launcher.
+- `hpc_campaigns/slurm/dynamic_multilauncher.sh`: dynamic queue launcher for `jobfile` commands.
+- `hpc_campaigns/slurm/submit_multilauncher.sh`: submits the Slurm array.
 
 ## Workflow
 1. Edit `hpc_campaigns/templates/base_campaign.yaml`.
@@ -19,7 +20,7 @@ This folder contains HPC tooling to generate and submit many DMRG runs with `hpc
    ```bash
    julia hpc_campaigns/launch_campaign.jl hpc_campaigns/templates/base_campaign.yaml /absolute/path/to/runs
    ```
-3. Submit with `hpc_multilauncher`:
+3. Submit with the dynamic launcher:
    ```bash
    bash hpc_campaigns/slurm/submit_multilauncher.sh /absolute/path/to/runs/<campaign_name>
    ```
@@ -54,7 +55,7 @@ It also creates:
 - `dmrg.maxdim` is emitted in inline YAML list form for readability.
 - `observables.triple_corr.pairs` is emitted in compact row form (`- [r, s]`).
 - `jobfile` contains one command per run:
-  - `julia <app_script> <run_dir>/parameters.yaml`
+  - `julia --project=<repo_root> <app_script> <run_dir>/parameters.yaml`
 - Paths for state/results/log/checkpoint are written as absolute paths per run.
 - `meta.run_name` in each generated config is set to `run_XXXX`.
 - This tooling is intentionally outside `src/` to keep the library scheduler-agnostic.

@@ -1,15 +1,15 @@
-# Slurm Submission (hpc_multilauncher)
+# Slurm Submission (dynamic launcher)
 
-This folder contains Slurm scripts for running campaign `jobfile` commands through `hpc_multilauncher`.
+This folder contains Slurm scripts for running campaign `jobfile` commands through an in-repo dynamic launcher.
 
 ## Files
 - `job.slurm`: Slurm array worker. Each array task calls:
-  - `hpc_multilauncher <run_root>/jobfile <threads_per_run>`
+  - `hpc_campaigns/slurm/dynamic_multilauncher.sh <run_root>/jobfile <threads_per_run>`
+- `dynamic_multilauncher.sh`: shared-queue launcher with dynamic work stealing across array tasks.
 - `submit_multilauncher.sh`: helper that computes array size and submits `job.slurm`.
 
 ## Prerequisites
-- `hpc_multilauncher` available in `PATH` on compute nodes.
-- `GNU parallel` available (required by `hpc_multilauncher`).
+- Bash available on compute nodes.
 - Campaign already generated with:
   - `hpc_campaigns/launch_campaign.jl`
   - and containing `<run_root>/jobfile`.
@@ -27,23 +27,26 @@ bash hpc_campaigns/slurm/submit_multilauncher.sh /absolute/path/to/runs/<campaig
 
 Submit to `grant` with account credential:
 ```bash
-bash hpc_campaigns/slurm/submit_multilauncher.sh /absolute/path/to/runs/<campaign_name> 16 2 hpc_campaigns/slurm/job.slurm grant
+bash hpc_campaigns/slurm/submit_multilauncher.sh /absolute/path/to/runs/<campaign_name> 16 2 grant
 ```
 
 Submit to `grant` choosing a named account profile:
 ```bash
-bash hpc_campaigns/slurm/submit_multilauncher.sh /absolute/path/to/runs/<campaign_name> 16 2 hpc_campaigns/slurm/job.slurm grant francesco
+bash hpc_campaigns/slurm/submit_multilauncher.sh /absolute/path/to/runs/<campaign_name> 16 2 grant francesco
 ```
 
 Arguments:
 - `run_root` (required): campaign directory containing `jobfile`.
-- `n_subjobs` (optional): number of Slurm array tasks. `0` means auto.
-- `threads_per_run` (optional): passed to `hpc_multilauncher`.
-- `job_script` (optional): alternate Slurm script path.
+- `n_subjobs` (optional): number of Slurm array tasks. `0` means auto full-node packing (`1` task).
+- `threads_per_run` (optional): expected CPU threads per command, used to set per-node parallel slots.
 - `partition` (optional): submit-time partition override (`public`, `grant`, `publicgpu`, `grantgpu`, ...).
 - `account_name` (optional): selector for account mapping when using `grant`/`grantgpu`.
   - `francesco` -> looks for `CAIUS_GRANT_ACCOUNT_FRANCESCO` (or legacy equivalent)
   - `acct:g2025a457b` -> uses direct account id without lookup
+- `job_script` (optional): alternate Slurm script path.
+
+Preferred argument order:
+`<run_root> [n_subjobs] [threads_per_run] [partition] [account_name] [job_script]`
 
 ## Credentials For `grant` / `grantgpu`
 `submit_multilauncher.sh` can auto-attach account credentials when you pass:
@@ -93,6 +96,13 @@ CAIUS_GRANT_ACCOUNT_FRANCESCO="g2025a457b"
 ```
 
 Template file: `hpc_campaigns/slurm/credentials.local.sh.example`
+
+## Full-Node Scheduling Note
+On CAIUS partitions that allocate full nodes per array task, prefer:
+- `n_subjobs=0` (auto => 1 task, pack work inside node)
+- tune `threads_per_run` to match your per-command threading needs
+- increase `n_subjobs` only when you intentionally want multiple full nodes
+- dynamic launcher scheduling avoids static chunk imbalance between heterogenous nodes
 
 ## Cluster Settings
 Edit `job.slurm` header for your cluster:

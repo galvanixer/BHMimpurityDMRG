@@ -15,7 +15,7 @@ Typical hierarchy:
 `node -> cpu(s) -> core(s) -> hardware thread(s)`
 
 Slurm allocates CPU resources to a task (for example via `--cpus-per-task`).  
-Inside that task, `hpc_multilauncher` decides how many commands to run concurrently.
+Inside each task, `dynamic_multilauncher.sh` runs worker slots and pulls commands from a shared queue.
 
 ## 1) What is a Slurm "task" here?
 
@@ -28,13 +28,13 @@ sbatch --array=1-N hpc_campaigns/slurm/job.slurm <run_root> <threads_per_run>
 then Slurm launches `N` tasks.  
 Each task runs `job.slurm` once.
 
-Inside each task, `hpc_multilauncher` executes a chunk of commands from `<run_root>/jobfile`.
+Inside each task, the dynamic launcher takes the next pending command from `<run_root>/jobfile` until the queue is empty.
 
 ## 2) What does `--cpus-per-task` mean?
 
-`#SBATCH --cpus-per-task=8` requests 8 CPU cores for each array task.
+`#SBATCH --cpus-per-task=1` requests 1 CPU core as the per-task baseline in current defaults.
 
-`hpc_multilauncher` uses available cores (via Slurm env vars) to decide how many commands to run in parallel:
+The dynamic launcher uses available cores (via Slurm env vars) to decide how many commands to run in parallel:
 - parallel jobs per task ≈ `allocated_cpus / threads_per_run`
 
 So increasing `--cpus-per-task` can increase per-task parallel throughput.
@@ -50,21 +50,21 @@ Common forms:
 If memory is too low, Slurm may kill the task for OOM.  
 If memory is too high, scheduling can be slower.
 
-For `hpc_multilauncher`, memory should cover all commands running concurrently inside one task.
+For the dynamic launcher, memory should cover all commands running concurrently inside one task.
 
 ## 4) What does `-N 1 --exclusive` mean?
 
 - `-N 1`: request exactly 1 node.
 - `--exclusive`: no other jobs share that node.
 
-This gives your job full-node ownership (all node cores/memory), useful for dense internal packing with `hpc_multilauncher`.
+This gives your job full-node ownership (all node cores/memory), useful for dense internal packing with the dynamic launcher.
 
 ## 5) Current project script vs classic full-node style
 
 Current `job.slurm` is portable and generic:
 - uses `--cpus-per-task` and `--mem`
 - takes `<run_root>` and optional `<threads_per_run>`
-- validates prerequisites (`jobfile`, `hpc_multilauncher`)
+- validates prerequisites (`jobfile`, dynamic launcher script)
 
 A cluster-specific full-node style often looks like:
 ```bash

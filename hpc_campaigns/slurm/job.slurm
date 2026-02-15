@@ -3,11 +3,12 @@
 #SBATCH --partition=public
 #SBATCH --time=1-00:00:00
 #SBATCH --cpus-per-task=1
-#SBATCH --mem=8G
+#SBATCH --mem=0
 #SBATCH --requeue
 #SBATCH --output=slurm-%A_%a.out
 
-# CAIUS defaults above target fast scheduling on CPU nodes.
+# CAIUS defaults above target full-node packing on CPU nodes.
+# --mem=0 requests all memory on the allocated node.
 # Override at submit time when needed, e.g.:
 #   sbatch -p grant -t 4-00:00:00 --mem=64G --array=1-N hpc_campaigns/slurm/job.slurm <run_root> [threads_per_run]
 
@@ -27,11 +28,6 @@ if [[ ! "$THREADS_PER_RUN" =~ ^[1-9][0-9]*$ ]]; then
   exit 1
 fi
 
-if ! command -v hpc_multilauncher >/dev/null 2>&1; then
-  echo "hpc_multilauncher not found in PATH" >&2
-  exit 1
-fi
-
 REPO_ROOT="${BHM_REPO_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 if [[ ! -f "${REPO_ROOT}/Project.toml" ]]; then
   echo "Unable to determine repository root (missing Project.toml): ${REPO_ROOT}" >&2
@@ -39,6 +35,12 @@ if [[ ! -f "${REPO_ROOT}/Project.toml" ]]; then
   exit 1
 fi
 cd "$REPO_ROOT"
+
+LAUNCHER_SCRIPT="${REPO_ROOT}/hpc_campaigns/slurm/dynamic_multilauncher.sh"
+if [[ ! -f "$LAUNCHER_SCRIPT" ]]; then
+  echo "Dynamic launcher not found: $LAUNCHER_SCRIPT" >&2
+  exit 1
+fi
 
 # Ensure campaign commands use this repository's Julia environment by default.
 export JULIA_PROJECT="${JULIA_PROJECT:-$REPO_ROOT}"
@@ -54,10 +56,10 @@ echo "mem_per_node_mb=${SLURM_MEM_PER_NODE:-unset}"
 echo "threads_per_run=$THREADS_PER_RUN"
 echo "julia_project=${JULIA_PROJECT}"
 
-if [[ -n "${SLURM_CPUS_PER_TASK:-}" ]] && (( THREADS_PER_RUN > SLURM_CPUS_PER_TASK )); then
-  echo "Warning: threads_per_run ($THREADS_PER_RUN) > cpus_per_task (${SLURM_CPUS_PER_TASK}); runs may serialize." >&2
+if [[ -n "${SLURM_CPUS_ON_NODE:-}" ]] && (( THREADS_PER_RUN > SLURM_CPUS_ON_NODE )); then
+  echo "Warning: threads_per_run ($THREADS_PER_RUN) > cpus_on_node (${SLURM_CPUS_ON_NODE}); runs may serialize." >&2
 fi
 
-hpc_multilauncher "$JOBFILE" "$THREADS_PER_RUN"
+bash "$LAUNCHER_SCRIPT" "$JOBFILE" "$THREADS_PER_RUN"
 
 echo "[$(date)] Finished multi-launch task"
