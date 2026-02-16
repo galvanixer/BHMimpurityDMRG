@@ -11,6 +11,8 @@ set -euo pipefail
 #                        auto = ceil(jobfile_lines / 24) using 24-core standard nodes
 #                        On CAIUS full-node partitions this is effectively the node count.
 #   3) threads_per_run : CPU threads used by each launched command inside a task
+#                        Default threading model per run:
+#                        JULIA_NUM_THREADS=1 and OPENBLAS_NUM_THREADS=max(1, threads_per_run-1)
 #   4) cpus_per_task   : Slurm CPU request per array task (default: 24)
 #   5) partition       : optional submit override (e.g., public, grant, publicgpu, grantgpu)
 #   6) account_name    : optional account selector for grant/grantgpu
@@ -133,6 +135,46 @@ if [[ ! "$CPUS_PER_TASK_REQUEST" =~ ^[1-9][0-9]*$ ]]; then
   exit 1
 fi
 
+# Threading environment defaults for compute jobs.
+# Model: one Julia runtime thread plus BLAS workers.
+BLAS_THREADS_DEFAULT=1
+if (( THREADS_PER_RUN > 1 )); then
+  BLAS_THREADS_DEFAULT=$((THREADS_PER_RUN - 1))
+fi
+
+JULIA_NUM_THREADS="${JULIA_NUM_THREADS:-1}"
+JULIA_NUM_GC_THREADS="${JULIA_NUM_GC_THREADS:-1}"
+OPENBLAS_NUM_THREADS="${OPENBLAS_NUM_THREADS:-$BLAS_THREADS_DEFAULT}"
+OPENBLAS_DYNAMIC="${OPENBLAS_DYNAMIC:-0}"
+OMP_NUM_THREADS="${OMP_NUM_THREADS:-1}"
+MKL_NUM_THREADS="${MKL_NUM_THREADS:-1}"
+
+for var in JULIA_NUM_THREADS JULIA_NUM_GC_THREADS OPENBLAS_NUM_THREADS OMP_NUM_THREADS MKL_NUM_THREADS; do
+  value="${!var}"
+  if [[ ! "$value" =~ ^[1-9][0-9]*$ ]]; then
+    echo "${var} must be a positive integer, got: $value" >&2
+    exit 1
+  fi
+done
+
+if [[ ! "$OPENBLAS_DYNAMIC" =~ ^[01]$ ]]; then
+  echo "OPENBLAS_DYNAMIC must be 0 or 1, got: $OPENBLAS_DYNAMIC" >&2
+  exit 1
+fi
+
+export JULIA_NUM_THREADS JULIA_NUM_GC_THREADS OPENBLAS_NUM_THREADS OPENBLAS_DYNAMIC OMP_NUM_THREADS MKL_NUM_THREADS
+
+THREADS_PER_RUN_ENV_BUDGET=$((JULIA_NUM_THREADS + OPENBLAS_NUM_THREADS - 1))
+if (( JULIA_NUM_THREADS > 1 && OPENBLAS_NUM_THREADS > 1 )); then
+  echo "Warning: JULIA_NUM_THREADS=${JULIA_NUM_THREADS} and OPENBLAS_NUM_THREADS=${OPENBLAS_NUM_THREADS} are both >1; nested threading can oversubscribe CPUs." >&2
+fi
+if (( THREADS_PER_RUN_ENV_BUDGET != THREADS_PER_RUN )); then
+  echo "Warning: threads_per_run=${THREADS_PER_RUN} but env implies ~${THREADS_PER_RUN_ENV_BUDGET} CPU threads/run (JULIA_NUM_THREADS + OPENBLAS_NUM_THREADS - 1)." >&2
+fi
+if (( THREADS_PER_RUN > CPUS_PER_TASK_REQUEST )); then
+  echo "Warning: threads_per_run=${THREADS_PER_RUN} exceeds cpus_per_task=${CPUS_PER_TASK_REQUEST}; launcher slots may serialize." >&2
+fi
+
 # Number of commands in jobfile bounds useful array size.
 N_CMDS="$(awk 'END { print NR }' "$JOBFILE")"
 if (( N_CMDS <= 0 )); then
@@ -163,7 +205,8 @@ fi
 # Submit a 1-based contiguous array range; job.slurm uses SLURM_ARRAY_TASK_ID.
 # On CAIUS, each array task usually maps to one full node, so num_array_tasks ~= nodes.
 ARRAY_SPEC="1-${NUM_ARRAY_TASKS}"
-SBATCH_ARGS=(--array="$ARRAY_SPEC" --cpus-per-task="$CPUS_PER_TASK_REQUEST" --export="ALL,BHM_REPO_ROOT=${REPO_ROOT}")
+EXPORT_ENV="ALL,BHM_REPO_ROOT=${REPO_ROOT},JULIA_NUM_THREADS=${JULIA_NUM_THREADS},JULIA_NUM_GC_THREADS=${JULIA_NUM_GC_THREADS},OPENBLAS_NUM_THREADS=${OPENBLAS_NUM_THREADS},OPENBLAS_DYNAMIC=${OPENBLAS_DYNAMIC},OMP_NUM_THREADS=${OMP_NUM_THREADS},MKL_NUM_THREADS=${MKL_NUM_THREADS}"
+SBATCH_ARGS=(--array="$ARRAY_SPEC" --cpus-per-task="$CPUS_PER_TASK_REQUEST" --export="$EXPORT_ENV")
 ACCOUNT_TO_USE=""
 ACCOUNT_ENV_HINT=""
 PARTITION_KIND=""
@@ -246,6 +289,12 @@ echo "repo root:        $REPO_ROOT"
 echo "partition:        ${PARTITION:-<job.slurm default>}"
 echo "time_limit:       ${TIME_LIMIT_OVERRIDE:-<job.slurm default>}"
 echo "cpus_per_task:    $CPUS_PER_TASK_REQUEST"
+echo "julia_threads:    $JULIA_NUM_THREADS"
+echo "julia_gc_threads: $JULIA_NUM_GC_THREADS"
+echo "openblas_threads: $OPENBLAS_NUM_THREADS"
+echo "openblas_dynamic: $OPENBLAS_DYNAMIC"
+echo "omp_threads:      $OMP_NUM_THREADS"
+echo "mkl_threads:      $MKL_NUM_THREADS"
 echo "account_name:     ${ACCOUNT_NAME:-<auto>}"
 if [[ -n "$ACCOUNT_TO_USE" ]]; then
   echo "account:          $ACCOUNT_TO_USE"

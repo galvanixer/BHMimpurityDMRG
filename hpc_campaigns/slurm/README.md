@@ -25,6 +25,12 @@ Submit with explicit array size and threads per run:
 bash hpc_campaigns/slurm/submit_multilauncher.sh /absolute/path/to/runs/<campaign_name> 16 2
 ```
 
+Submit with explicit threading env overrides:
+```bash
+OPENBLAS_NUM_THREADS=4 JULIA_NUM_THREADS=1 JULIA_NUM_GC_THREADS=1 OPENBLAS_DYNAMIC=0 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 \
+bash hpc_campaigns/slurm/submit_multilauncher.sh /absolute/path/to/runs/<campaign_name> 0 5 24 public
+```
+
 Submit with explicit CPU request per array task:
 ```bash
 bash hpc_campaigns/slurm/submit_multilauncher.sh /absolute/path/to/runs/<campaign_name> 1 1 25 public
@@ -46,6 +52,13 @@ Arguments:
   - default (or `0`): `ceil(jobfile_lines / 24)`
   - on CAIUS full-node partitions this is effectively the number of nodes.
 - `threads_per_run` (optional): expected CPU threads per command, used to compute launcher slots.
+- Thread env defaults (can be overridden via environment):
+  - `JULIA_NUM_THREADS=1`
+  - `OPENBLAS_NUM_THREADS=max(1, threads_per_run-1)`
+  - `JULIA_NUM_GC_THREADS=1`
+  - `OPENBLAS_DYNAMIC=0`
+  - `OMP_NUM_THREADS=1`
+  - `MKL_NUM_THREADS=1`
 - `cpus_per_task` (optional): Slurm `--cpus-per-task` for each array task (default: `24`).
 - `partition` (optional): submit-time partition override (`public`, `grant`, `publicgpu`, `grantgpu`, ...).
   - walltime defaults by partition: `public/publicgpu -> 1-00:00:00`, `grant/grantgpu -> 4-00:00:00`
@@ -67,14 +80,38 @@ the effective request is:
 - partition: `public` (from `job.slurm`)
 - time limit: `1-00:00:00` (submit default for `public`; `grant`/`grantgpu` use `4-00:00:00`)
 - cpus per task: `24` (submit default)
-- memory: `--mem=0` (all memory on allocated node)
+- memory: `--mem-per-cpu=4G` from `job.slurm` (total per task = `cpus_per_task * 4G`)
 - launcher slots per array task: `floor(cpus_per_task / threads_per_run)`
+- thread env:
+  - `JULIA_NUM_THREADS=1`
+  - `OPENBLAS_NUM_THREADS=1` (derived from `threads_per_run=1`)
+  - `JULIA_NUM_GC_THREADS=1`
+  - `OPENBLAS_DYNAMIC=0`
+  - `OMP_NUM_THREADS=1`
+  - `MKL_NUM_THREADS=1`
 
 To request a different CPU count explicitly, pass `cpus_per_task`:
 ```bash
 bash hpc_campaigns/slurm/submit_multilauncher.sh <run_root> 0 1 25 public
 ```
 This adds `--cpus-per-task=25` at submit time.
+
+## Threading Environment
+`submit_multilauncher.sh` now exports threading vars explicitly to `sbatch`:
+- `JULIA_NUM_THREADS`
+- `JULIA_NUM_GC_THREADS`
+- `OPENBLAS_NUM_THREADS`
+- `OPENBLAS_DYNAMIC`
+- `OMP_NUM_THREADS`
+- `MKL_NUM_THREADS`
+
+Defaults are derived from `threads_per_run` as:
+- `JULIA_NUM_THREADS=1`
+- `OPENBLAS_NUM_THREADS=max(1, threads_per_run-1)`
+
+The script warns if:
+- `JULIA_NUM_THREADS>1` and `OPENBLAS_NUM_THREADS>1` (nested threading risk)
+- `threads_per_run` does not match `JULIA_NUM_THREADS + OPENBLAS_NUM_THREADS - 1`
 
 ## Partition Time Defaults
 `submit_multilauncher.sh` applies submit-time walltime defaults:
@@ -95,7 +132,7 @@ What this requests:
 - `--array=1-1`
 - `--cpus-per-task=25`
 - `--partition=public`
-- `--mem=0` (from `job.slurm`)
+- `--mem-per-cpu=4G` (from `job.slurm`, so with `--cpus-per-task=25` total is about `100G`)
 
 What launcher does:
 - `threads_per_run=1`
