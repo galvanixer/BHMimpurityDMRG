@@ -6,6 +6,8 @@
 # 4) Run DMRG
 # ----------------------------
 
+using LinearAlgebra
+
 mutable struct EarlyStopDMRGObserver <: ITensorMPS.AbstractObserver
     energies::Vector{Float64}
     truncerrs::Vector{Float64}
@@ -321,6 +323,10 @@ function run_dmrg(; L=12,
     checkpoint_density_every=1,
     outputlevel=1,
     saveresults=false, savepath="results.h5", kwargs...)
+
+    if outputlevel > 0
+        @info "Thread config" julia_threads=Threads.nthreads() gc_threads=Threads.ngcthreads() blas_threads=BLAS.get_num_threads() julia_num_threads_env=get(ENV, "JULIA_NUM_THREADS", "unset") openblas_num_threads_env=get(ENV, "OPENBLAS_NUM_THREADS", "unset")
+    end
 
     resume_mode_sym = resume_mode isa Symbol ? resume_mode : Symbol(lowercase(String(resume_mode)))
     resume_mode_sym in (:remaining, :warm_start) ||
