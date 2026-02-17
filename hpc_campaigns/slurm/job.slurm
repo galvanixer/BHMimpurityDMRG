@@ -42,8 +42,20 @@ if [[ ! -f "$LAUNCHER_SCRIPT" ]]; then
   exit 1
 fi
 
-# Ensure campaign commands use this repository's Julia environment by default.
+# Julia environment/cache setup:
+# - JULIA_PROJECT tracks this repo on the current HPC filesystem.
+# - JULIA_DEPOT_PATH should point to a persistent shared path to avoid repeated precompile on random nodes.
+#   Priority: user-provided JULIA_DEPOT_PATH > BHM_JULIA_DEPOT > $HOME/.julia_bhmimpuritydmrg
 export JULIA_PROJECT="${JULIA_PROJECT:-$REPO_ROOT}"
+if [[ -z "${JULIA_DEPOT_PATH:-}" ]]; then
+  export JULIA_DEPOT_PATH="${BHM_JULIA_DEPOT:-$HOME/.julia_bhmimpuritydmrg}"
+fi
+DEPOT_PRIMARY="${JULIA_DEPOT_PATH%%:*}"
+if [[ -n "$DEPOT_PRIMARY" ]]; then
+  mkdir -p "$DEPOT_PRIMARY"
+fi
+export JULIA_PKG_PRECOMPILE_AUTO="${JULIA_PKG_PRECOMPILE_AUTO:-0}"
+export JULIA_CPU_TARGET="${JULIA_CPU_TARGET:-generic}"
 
 echo "[$(date)] Starting multi-launch task"
 echo "run_root=$RUN_ROOT"
@@ -55,6 +67,9 @@ echo "cpus_per_task=${SLURM_CPUS_PER_TASK:-unset}"
 echo "mem_per_node_mb=${SLURM_MEM_PER_NODE:-unset}"
 echo "threads_per_run=$THREADS_PER_RUN"
 echo "julia_project=${JULIA_PROJECT}"
+echo "julia_depot_path=${JULIA_DEPOT_PATH}"
+echo "julia_pkg_precompile_auto=${JULIA_PKG_PRECOMPILE_AUTO}"
+echo "julia_cpu_target=${JULIA_CPU_TARGET}"
 
 if [[ -n "${SLURM_CPUS_ON_NODE:-}" ]] && (( THREADS_PER_RUN > SLURM_CPUS_ON_NODE )); then
   echo "Warning: threads_per_run ($THREADS_PER_RUN) > cpus_on_node (${SLURM_CPUS_ON_NODE}); runs may serialize." >&2

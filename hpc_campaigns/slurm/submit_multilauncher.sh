@@ -23,9 +23,15 @@ set -euo pipefail
 #                        - direct account via acct:<account_id> (e.g., acct:g2025a457b)
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)" # Absolute directory of this script, used for resolving relative paths reliably.
-REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)" # Repository root, assumed to contain Project.toml. Can be overridden by BHM_REPO_ROOT env var.
+REPO_ROOT="${BHM_REPO_ROOT:-$(cd "${SCRIPT_DIR}/../.." && pwd)}" # Repository root on current system (local/HPC can differ).
 LOCAL_CREDENTIALS_FILE="${SCRIPT_DIR}/credentials.local.sh" # Optional local credentials file, kept out of git, for partition-bound accounts.
 STANDARD_NODE_CORES=24 # Standard CPU cores per node on CAIUS; used for auto array task calculation. Adjust if using a different cluster with different node sizes.
+
+if [[ ! -f "${REPO_ROOT}/Project.toml" ]]; then
+  echo "Unable to determine repository root (missing Project.toml): ${REPO_ROOT}" >&2
+  echo "Set BHM_REPO_ROOT=/path/to/repo/on/this/system and retry." >&2
+  exit 1
+fi
 
 RUN_ROOT="${1:?Usage: bash hpc_campaigns/slurm/submit_multilauncher.sh <campaign_run_root> [num_array_tasks] [threads_per_run] [cpus_per_task] [partition] [account_name] [job_script]}"
 NUM_ARRAY_TASKS_RAW="${2:-}"

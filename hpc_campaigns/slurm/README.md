@@ -7,12 +7,32 @@ This folder contains Slurm scripts for running campaign `jobfile` commands throu
   - `hpc_campaigns/slurm/dynamic_multilauncher.sh <run_root>/jobfile <threads_per_run>`
 - `dynamic_multilauncher.sh`: shared-queue launcher with dynamic work stealing across array tasks.
 - `submit_multilauncher.sh`: helper that computes array size and submits `job.slurm`.
+- `precompile_project.sh`: one-shot helper to instantiate/precompile with a persistent depot.
 
 ## Prerequisites
 - Bash available on compute nodes.
 - Campaign already generated with:
   - `hpc_campaigns/launch_campaign.jl`
   - and containing `<run_root>/jobfile`.
+
+## Persistent Julia Cache (recommended)
+To avoid repeated precompilation on random nodes, use a persistent shared depot:
+
+```bash
+export BHM_JULIA_DEPOT=/shared/path/julia_depot_bhm
+export JULIA_CPU_TARGET=generic
+export JULIA_PKG_PRECOMPILE_AUTO=0
+```
+
+Warm it once:
+
+```bash
+bash hpc_campaigns/slurm/precompile_project.sh /path/to/BHMimpurityDMRG /shared/path/julia_depot_bhm
+```
+
+`job.slurm` uses:
+- `JULIA_PROJECT=$REPO_ROOT` (detected on HPC filesystem)
+- `JULIA_DEPOT_PATH=${JULIA_DEPOT_PATH:-${BHM_JULIA_DEPOT:-$HOME/.julia_bhmimpuritydmrg}}`
 
 ## Usage
 Submit with defaults:
