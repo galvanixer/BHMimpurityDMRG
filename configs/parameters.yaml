@@ -63,6 +63,9 @@ dmrg:
   # Checkpointing
   checkpoint_every: 0  # Save checkpoint every N sweeps (0 disables checkpointing)
   checkpoint_path: "dmrg_state_checkpoint.h5"  # Rewritten atomically at each checkpoint
+  resume_from_checkpoint: true  # If true, try to load checkpoint_path as psi0 before building product-state psi0
+  resume_mode: "remaining"  # "remaining" => run only nsweeps-checkpoint_sweep, "warm_start" => run full nsweeps from checkpoint psi
+  checkpoint_require_hash: true  # Require checkpoint params SHA-256 to match current params file before resuming
   checkpoint_save_densities: false  # If true, also store na/nb in checkpoint files
   checkpoint_density_every: 1  # Save densities every K checkpoints (used if checkpoint_save_densities=true)
 

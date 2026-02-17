@@ -69,7 +69,7 @@ end
 """
     save_state(path::AbstractString, psi::MPS; energy=nothing, sites=siteinds(psi),
                params_path=nothing, params_text=nothing, na=nothing, nb=nothing,
-               init_na=nothing, init_nb=nothing)
+               init_na=nothing, init_nb=nothing, checkpoint_sweep=nothing)
 
 Save the ground state `psi` (and optionally `energy`, `sites`, YAML parameters, and
 site densities `na`, `nb`)
@@ -77,7 +77,7 @@ to an HDF5 file.
 """
 function save_state(path::AbstractString, psi::MPS; energy=nothing, sites=siteinds(psi),
     params_path=nothing, params_text=nothing, na=nothing, nb=nothing,
-    init_na=nothing, init_nb=nothing)
+    init_na=nothing, init_nb=nothing, checkpoint_sweep=nothing)
     HDF5.h5open(path, "w") do f
         g_state = HDF5.create_group(f, "state")
         write(g_state, "psi", psi)
@@ -88,6 +88,9 @@ function save_state(path::AbstractString, psi::MPS; energy=nothing, sites=sitein
 
         g_meta = HDF5.create_group(f, "meta")
         write_meta!(g_meta; params_path=params_path, params_text=params_text)
+        if checkpoint_sweep !== nothing
+            write_or_replace(g_meta, "checkpoint_sweep", Int(checkpoint_sweep))
+        end
 
         if na !== nothing || nb !== nothing
             g_obs = HDF5.create_group(f, "observables")
@@ -119,7 +122,7 @@ end
 
 Load a saved MPS ground state from an HDF5 file.
 
-Returns a NamedTuple `(psi, sites, energy, params_yaml, params_sha256, na, nb, init_na, init_nb)` where
+Returns a NamedTuple `(psi, sites, energy, params_yaml, params_sha256, na, nb, init_na, init_nb, checkpoint_sweep)` where
 optional fields may be `nothing` if they were not stored.
 """
 function load_state(path::AbstractString)
@@ -138,6 +141,7 @@ function load_state(path::AbstractString)
 
         params_yaml = nothing
         params_sha256 = nothing
+        checkpoint_sweep = nothing
         if haskey(f, "meta")
             g_meta = f["meta"]
             if haskey(g_meta, "params_yaml")
@@ -145,6 +149,9 @@ function load_state(path::AbstractString)
             end
             if haskey(g_meta, "params_sha256")
                 params_sha256 = read(g_meta, "params_sha256")
+            end
+            if haskey(g_meta, "checkpoint_sweep")
+                checkpoint_sweep = Int(read(g_meta, "checkpoint_sweep"))
             end
         end
         if params_yaml === nothing && haskey(f, "params_yaml")
@@ -167,6 +174,6 @@ function load_state(path::AbstractString)
             init_nb = haskey(g_init_obs, "nb") ? read(g_init_obs, "nb") : nothing
         end
 
-        return (; psi, sites, energy, params_yaml, params_sha256, na, nb, init_na, init_nb)
+        return (; psi, sites, energy, params_yaml, params_sha256, na, nb, init_na, init_nb, checkpoint_sweep)
     end
 end

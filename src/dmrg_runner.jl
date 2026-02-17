@@ -20,6 +20,7 @@ mutable struct EarlyStopDMRGObserver <: ITensorMPS.AbstractObserver
     checkpoint_params_path::Union{Nothing,String}
     checkpoint_save_densities::Bool
     checkpoint_density_every::Int
+    sweep_offset::Int
 end
 
 function EarlyStopDMRGObserver(;
@@ -32,7 +33,8 @@ function EarlyStopDMRGObserver(;
     checkpoint_path::Union{Nothing,AbstractString}=nothing,
     checkpoint_params_path::Union{Nothing,AbstractString}=nothing,
     checkpoint_save_densities::Bool=false,
-    checkpoint_density_every::Int=1
+    checkpoint_density_every::Int=1,
+    sweep_offset::Int=0
 )
     return EarlyStopDMRGObserver(
         Float64[],
@@ -47,7 +49,8 @@ function EarlyStopDMRGObserver(;
         checkpoint_path === nothing ? nothing : String(checkpoint_path),
         checkpoint_params_path === nothing ? nothing : String(checkpoint_params_path),
         checkpoint_save_densities,
-        max(1, checkpoint_density_every)
+        max(1, checkpoint_density_every),
+        max(0, sweep_offset)
     )
 end
 
@@ -95,7 +98,8 @@ function maybe_checkpoint!(
             sites=obs.sites === nothing ? siteinds(psi) : obs.sites,
             params_path=obs.checkpoint_params_path,
             na=na,
-            nb=nb
+            nb=nb,
+            checkpoint_sweep=sweep
         )
         mv(tmp_path, path; force=true)
         if outputlevel > 0
@@ -136,7 +140,8 @@ function ITensorMPS.checkdone!(obs::EarlyStopDMRGObserver; outputlevel=0, energy
     energy === nothing && return false
     push!(obs.energies, Float64(real(energy)))
 
-    sw = sweep === nothing ? length(obs.energies) : Int(sweep)
+    sw_local = sweep === nothing ? length(obs.energies) : Int(sweep)
+    sw = sw_local + obs.sweep_offset
     psi = haskey(kwargs, :psi) ? kwargs[:psi] : nothing
     if psi !== nothing
         maybe_checkpoint!(obs; psi=psi, energy=energy, sweep=sw, outputlevel=outputlevel)
@@ -147,7 +152,7 @@ function ITensorMPS.checkdone!(obs::EarlyStopDMRGObserver; outputlevel=0, energy
     if !(energy_active || trunc_active)
         return false
     end
-    if sw < obs.min_sweeps || length(obs.energies) < 2
+    if sw_local < max(2, obs.min_sweeps)
         obs.streak = 0
         return false
     end
@@ -167,7 +172,7 @@ function ITensorMPS.checkdone!(obs::EarlyStopDMRGObserver; outputlevel=0, energy
     if obs.streak >= obs.patience
         if outputlevel > 0
             println(
-                "Early stopping DMRG at sweep $sw: " *
+                "Early stopping DMRG at local sweep $sw_local (global sweep $sw): " *
                 "dE=$(dE), maxerr=$(maxerr), streak=$(obs.streak)"
             )
         end
@@ -195,6 +200,101 @@ function dmrg_initial_configuration(; L=12,
     return conf, na0, nb0
 end
 
+function expand_maxdim_schedule(maxdim, nsweeps::Int)
+    nsweeps >= 0 || error("nsweeps must be non-negative, got $nsweeps")
+    if nsweeps == 0
+        return Int[]
+    end
+
+    sched = if maxdim isa AbstractVector
+        vals = Int.(collect(maxdim))
+        isempty(vals) && error("maxdim vector cannot be empty")
+        vals
+    else
+        [Int(maxdim)]
+    end
+
+    if length(sched) >= nsweeps
+        return sched[1:nsweeps]
+    end
+    return vcat(sched, fill(sched[end], nsweeps - length(sched)))
+end
+
+function current_params_sha256(params_path)::Union{Nothing,String}
+    if params_path === nothing || !isfile(params_path)
+        return nothing
+    end
+    return bytes2hex(SHA.sha256(read(params_path, String)))
+end
+
+function parse_bool(x)
+    x isa Bool && return x
+    s = lowercase(strip(String(x)))
+    if s in ("1", "true", "yes", "y", "on")
+        return true
+    elseif s in ("0", "false", "no", "n", "off")
+        return false
+    end
+    error("Cannot parse boolean value from: $x")
+end
+
+function sites_compatible_for_resume(sites_requested, sites_checkpoint)
+    if length(sites_requested) != length(sites_checkpoint)
+        return false
+    end
+    for i in eachindex(sites_requested)
+        si = sites_requested[i]
+        sj = sites_checkpoint[i]
+        if dim(si) != dim(sj)
+            return false
+        end
+        if hasqns(si) != hasqns(sj)
+            return false
+        end
+    end
+    return true
+end
+
+function load_checkpoint_for_resume(;
+    checkpoint_path,
+    checkpoint_params_path,
+    checkpoint_require_hash::Bool,
+    requested_sites,
+    outputlevel::Integer=0
+)
+    if checkpoint_path === nothing || !isfile(checkpoint_path)
+        return nothing
+    end
+    try
+        st = load_state(checkpoint_path)
+        if checkpoint_require_hash
+            current_hash = current_params_sha256(checkpoint_params_path)
+            if current_hash === nothing
+                outputlevel > 0 && println(
+                    "Found checkpoint at $checkpoint_path but current params hash is unavailable; not resuming."
+                )
+                return nothing
+            end
+            if st.params_sha256 === nothing || st.params_sha256 != current_hash
+                outputlevel > 0 && println(
+                    "Checkpoint hash mismatch at $checkpoint_path; not resuming."
+                )
+                return nothing
+            end
+        end
+        if !sites_compatible_for_resume(requested_sites, st.sites)
+            outputlevel > 0 && println(
+                "Checkpoint site structure incompatible with requested setup; not resuming."
+            )
+            return nothing
+        end
+        return st
+    catch err
+        outputlevel > 0 && println("Failed to load checkpoint at $checkpoint_path: $err")
+        return nothing
+    end
+end
+
 function run_dmrg(; L=12,
     nmax_a=3, nmax_b=1,
     conserve_qns=true,
@@ -214,22 +314,50 @@ function run_dmrg(; L=12,
     checkpoint_every=0,
     checkpoint_path=nothing,
     checkpoint_params_path=nothing,
+    resume_from_checkpoint=true,
+    resume_mode::Union{Symbol,AbstractString}=:remaining,
+    checkpoint_require_hash=true,
     checkpoint_save_densities=false,
     checkpoint_density_every=1,
     outputlevel=1,
     saveresults=false, savepath="results.h5", kwargs...)
 
-    sites = two_boson_siteinds(L; nmax_a=nmax_a, nmax_b=nmax_b, conserve_qns=conserve_qns)
+    resume_mode_sym = resume_mode isa Symbol ? resume_mode : Symbol(lowercase(String(resume_mode)))
+    resume_mode_sym in (:remaining, :warm_start) ||
+        error("resume_mode must be :remaining or :warm_start (got: $resume_mode)")
 
-    # Initial state in the correct (Na, Nb) sector
-    conf, _, _ = dmrg_initial_configuration(;
-        L=L,
-        nmax_a=nmax_a, nmax_b=nmax_b,
-        Na_total=Na_total, Nb_total=Nb_total,
-        impurity_distribution=impurity_distribution,
-        seed=seed
-    )
-    psi0 = product_state_mps(sites, conf; nmax_b=nmax_b)
+    requested_sites = two_boson_siteinds(L; nmax_a=nmax_a, nmax_b=nmax_b, conserve_qns=conserve_qns)
+    resume_from_checkpoint_flag = parse_bool(resume_from_checkpoint)
+    checkpoint_require_hash_flag = parse_bool(checkpoint_require_hash)
+
+    st_checkpoint = resume_from_checkpoint_flag ? load_checkpoint_for_resume(
+        checkpoint_path=checkpoint_path,
+        checkpoint_params_path=checkpoint_params_path,
+        checkpoint_require_hash=checkpoint_require_hash_flag,
+        requested_sites=requested_sites,
+        outputlevel=outputlevel
+    ) : nothing
+
+    checkpoint_sweep = 0
+    if st_checkpoint !== nothing
+        sites = st_checkpoint.sites
+        psi0 = st_checkpoint.psi
+        checkpoint_sweep = st_checkpoint.checkpoint_sweep === nothing ? 0 : Int(st_checkpoint.checkpoint_sweep)
+        if outputlevel > 0
+            println("Loaded checkpoint from $checkpoint_path (checkpoint_sweep=$checkpoint_sweep)")
+        end
+    else
+        sites = requested_sites
+        # Initial state in the correct (Na, Nb) sector
+        conf, _, _ = dmrg_initial_configuration(;
+            L=L,
+            nmax_a=nmax_a, nmax_b=nmax_b,
+            Na_total=Na_total, Nb_total=Nb_total,
+            impurity_distribution=impurity_distribution,
+            seed=seed
+        )
+        psi0 = product_state_mps(sites, conf; nmax_b=nmax_b)
+    end
 
     H = build_hamiltonian(
         sites;
@@ -238,13 +366,31 @@ function run_dmrg(; L=12,
         mu_a=mu_a, mu_b=mu_b,
         periodic=periodic
     )
-    sweeps = Sweeps(nsweeps)
-    # A robust default schedule (adjust as needed)
-    if maxdim isa AbstractVector
-        maxdim!(sweeps, (Int(x) for x in maxdim)...)
-    else
-        maxdim!(sweeps, Int(maxdim))
+    maxdim_schedule = expand_maxdim_schedule(maxdim, Int(nsweeps))
+    sweep_offset = 0
+    if st_checkpoint !== nothing && resume_mode_sym == :remaining && checkpoint_sweep > 0
+        if checkpoint_sweep >= nsweeps
+            if outputlevel > 0
+                println(
+                    "Checkpoint already reached requested nsweeps (checkpoint_sweep=$checkpoint_sweep, nsweeps=$nsweeps). Skipping DMRG."
+                )
+            end
+            energy = st_checkpoint.energy
+            if energy === nothing
+                energy = real(inner(psi0, Apply(H, psi0)))
+            end
+            return energy, psi0, sites, H
+        end
+        maxdim_schedule = maxdim_schedule[(checkpoint_sweep + 1):end]
+        sweep_offset = checkpoint_sweep
+        outputlevel > 0 && println("Resuming remaining sweeps: $(length(maxdim_schedule)) (offset=$sweep_offset)")
+    elseif st_checkpoint !== nothing && resume_mode_sym == :warm_start
+        outputlevel > 0 && println("Warm-starting from checkpoint with full sweep schedule.")
     end
+    isempty(maxdim_schedule) && error("No sweeps to run. Set nsweeps > 0.")
+
+    sweeps = Sweeps(length(maxdim_schedule))
+    maxdim!(sweeps, maxdim_schedule...)
     cutoff!(sweeps, cutoff)
     # Uncomment noise if you see convergence to excited states/local minima:
     # noise!(sweeps, 1e-6, 1e-7, 1e-8, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
@@ -259,7 +405,8 @@ function run_dmrg(; L=12,
         checkpoint_path=checkpoint_path,
         checkpoint_params_path=checkpoint_params_path,
         checkpoint_save_densities=checkpoint_save_densities,
-        checkpoint_density_every=Int(checkpoint_density_every)
+        checkpoint_density_every=Int(checkpoint_density_every),
+        sweep_offset=sweep_offset
     )
 
     energy, psi = dmrg(H, psi0, sweeps; outputlevel=outputlevel, observer=observer)

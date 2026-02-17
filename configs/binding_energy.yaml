@@ -39,6 +39,9 @@ dmrg:
   patience: 3
   checkpoint_every: 0
   checkpoint_path: "dmrg_state_checkpoint.h5"
+  resume_from_checkpoint: true
+  resume_mode: "remaining"
+  checkpoint_require_hash: true
   checkpoint_save_densities: false
   checkpoint_density_every: 1
   outputlevel: 1
