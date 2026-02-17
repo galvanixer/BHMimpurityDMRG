@@ -34,6 +34,35 @@ bash hpc_campaigns/slurm/precompile_project.sh /path/to/BHMimpurityDMRG /shared/
 - `JULIA_PROJECT=$REPO_ROOT` (detected on HPC filesystem)
 - `JULIA_DEPOT_PATH=${JULIA_DEPOT_PATH:-${BHM_JULIA_DEPOT:-$HOME/.julia_bhmimpuritydmrg}}`
 
+### How `precompile_project.sh` works
+`precompile_project.sh` is a one-shot warmup helper for package/cache setup.
+
+Usage:
+```bash
+bash hpc_campaigns/slurm/precompile_project.sh [repo_root] [julia_depot]
+```
+
+Arguments:
+- `repo_root` (optional):
+  - default: `${BHM_REPO_ROOT}` if set, else repository inferred from script location.
+- `julia_depot` (optional):
+  - default: `${BHM_JULIA_DEPOT}` if set, else `${JULIA_DEPOT_PATH}`, else `$HOME/.julia_bhmimpuritydmrg`.
+
+What it does:
+1. Validates that `Project.toml` exists under `repo_root`.
+2. Exports:
+   - `JULIA_PROJECT=repo_root`
+   - `JULIA_DEPOT_PATH=julia_depot`
+   - `JULIA_CPU_TARGET=${JULIA_CPU_TARGET:-generic}`
+   - `JULIA_PKG_PRECOMPILE_AUTO=0`
+3. Creates the primary depot directory if needed.
+4. Runs:
+   - `Pkg.instantiate()`
+   - `Pkg.precompile()`
+
+Result:
+- Dependencies are installed and precompiled into the persistent depot, so production jobs on random nodes avoid repeated cold precompile.
+
 ## Usage
 Submit with defaults:
 ```bash
