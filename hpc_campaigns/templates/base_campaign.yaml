@@ -12,6 +12,10 @@ overrides:  # applied to every run (dot-path keys)
   dmrg.checkpoint_every: 10
   dmrg.checkpoint_save_densities: true
   dmrg.checkpoint_density_every: 2
+  # Auto warmup to a target max bond dimension:
+  # dmrg.maxdim.max: 1200
+  # dmrg.maxdim.min: 50
+  # dmrg.maxdim.warmup_sweeps: 6
 
 sweep:  # Cartesian sweep (dot-path keys)
   hamiltonian.mu_b: [3.8, 4.0, 4.2]

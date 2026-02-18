@@ -87,6 +87,8 @@ This gives 4 runs total:
   3. otherwise relative to repository root
 - Generated `parameters.yaml` preserves the section/key order of `base_config` when possible.
 - `dmrg.maxdim` is emitted in inline YAML list form for readability.
+- You can also auto-generate a warmup schedule by setting `dmrg.maxdim` as a dict:
+  - `dmrg.maxdim.max` (required), optional `dmrg.maxdim.min`, `dmrg.maxdim.warmup_sweeps`.
 - `observables.triple_corr.pairs` is emitted in compact row form (`- [r, s]`).
 - `jobfile` contains one command per run:
   - `julia --project=<repo_root> <app_script> <run_dir>/parameters.yaml`

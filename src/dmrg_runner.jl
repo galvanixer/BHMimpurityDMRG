@@ -208,10 +208,69 @@ function expand_maxdim_schedule(maxdim, nsweeps::Int)
         return Int[]
     end
 
+    function _dict_get(d::AbstractDict, keys::Vector{String}, default=nothing)
+        for k in keys
+            if haskey(d, k)
+                return d[k]
+            end
+            ks = Symbol(k)
+            if haskey(d, ks)
+                return d[ks]
+            end
+        end
+        return default
+    end
+
+    function _auto_warmup_schedule(spec::AbstractDict)
+        maxv_raw = _dict_get(spec, ["max", "maximum"], nothing)
+        maxv_raw === nothing && error("maxdim warmup spec requires key \"max\" (or \"maximum\")")
+        maxv = Int(maxv_raw)
+        maxv >= 1 || error("maxdim max must be >= 1, got $maxv")
+
+        minv = Int(_dict_get(spec, ["min", "start"], min(50, maxv)))
+        minv >= 1 || error("maxdim min/start must be >= 1, got $minv")
+        minv <= maxv || error("maxdim min/start must be <= max, got min=$minv max=$maxv")
+
+        warmup_raw = _dict_get(spec, ["warmup_sweeps", "steps", "length"], nothing)
+        if warmup_raw !== nothing
+            nwarm = Int(warmup_raw)
+            nwarm >= 1 || error("maxdim warmup_sweeps/steps/length must be >= 1, got $nwarm")
+            nwarm = min(nwarm, nsweeps)
+
+            if nwarm == 1
+                return [maxv]
+            end
+
+            # Geometric ramp from min -> max, then `expand_maxdim_schedule` pads with max.
+            ratio = maxv == minv ? 1.0 : (maxv / minv)^(1 / (nwarm - 1))
+            vals = Vector{Int}(undef, nwarm)
+            vals[1] = minv
+            for i in 2:nwarm
+                vals[i] = max(vals[i - 1], Int(round(minv * ratio^(i - 1))))
+            end
+            vals[end] = maxv
+            return vals
+        end
+
+        # Default warmup: doubling ramp to max, then pad with max.
+        vals = Int[minv]
+        while vals[end] < maxv
+            push!(vals, min(maxv, 2 * vals[end]))
+        end
+        return vals
+    end
+
     sched = if maxdim isa AbstractVector
         vals = Int.(collect(maxdim))
         isempty(vals) && error("maxdim vector cannot be empty")
         vals
+    elseif maxdim isa AbstractDict
+        spec = maxdim
+        mode_raw = _dict_get(spec, ["mode"], "warmup")
+        mode = lowercase(String(mode_raw))
+        mode in ("warmup", "auto", "automatic") ||
+            error("maxdim.mode must be one of: warmup, auto, automatic (got: $mode_raw)")
+        _auto_warmup_schedule(spec)
     else
         [Int(maxdim)]
     end

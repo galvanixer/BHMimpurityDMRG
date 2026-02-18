@@ -80,6 +80,12 @@ dmrg:
   nsweeps: 15
   cutoff: 1e-10
   maxdim: [50, 100, 200, 400, 600, 800, 800, 800, 800, 800, 800, 800]
+  # Alternative: auto warmup to a target max bond dimension
+  # maxdim:
+  #   mode: "warmup"
+  #   max: 1200
+  #   min: 50
+  #   warmup_sweeps: 6
 
 observables:
   triple_corr:
