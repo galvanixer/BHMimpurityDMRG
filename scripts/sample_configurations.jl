@@ -8,6 +8,28 @@ using HDF5
 using Logging
 using SHA
 
+function print_help(io::IO=stdout)
+    script = basename(@__FILE__)
+    println(io, "Usage:")
+    println(io, "  julia --project=. scripts/$script [params_path] [state_path] [results_path]")
+    println(io, "")
+    println(io, "Positional arguments:")
+    println(io, "  params_path   Optional YAML config path. Defaults to ENV[\"PARAMS\"] or configs/parameters.yaml")
+    println(io, "  state_path    Optional state HDF5 path. Defaults to io.state_save_path or dmrg_state.h5")
+    println(io, "  results_path  Optional results HDF5 path. Defaults to io.results_path or results.h5")
+    println(io, "")
+    println(io, "Config section (in parameters YAML):")
+    println(io, "  observables.sampled_configs.nsamples")
+    println(io, "  observables.sampled_configs.top_k")
+    println(io, "  observables.sampled_configs.seed")
+    println(io, "  observables.sampled_configs.write_decoded_occupations")
+    println(io, "")
+    println(io, "Examples:")
+    println(io, "  julia --project=. scripts/$script")
+    println(io, "  ./bin/sample_configurations")
+    println(io, "  julia --project=. scripts/$script configs/parameters.yaml dmrg_state.h5 results.h5")
+end
+
 function parse_bool(x, default::Bool=false)
     x === nothing && return default
     x isa Bool && return x
@@ -27,6 +49,16 @@ function parse_optional_int(x)
 end
 
 function main()
+    if any(a -> a in ("-h", "--help"), ARGS)
+        print_help()
+        return nothing
+    end
+
+    if length(ARGS) > 3
+        print_help(stderr)
+        error("Expected at most 3 positional arguments, got $(length(ARGS)).")
+    end
+
     params_path = length(ARGS) >= 1 ? ARGS[1] :
                   get(ENV, "PARAMS", joinpath(@__DIR__, "..", "configs", "parameters.yaml"))
 
