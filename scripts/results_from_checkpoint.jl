@@ -43,29 +43,6 @@ function parse_species(species, section_name::String)
     error("$section_name.species must be one of: \"a\", \"b\", \"both\"")
 end
 
-function resolve_pairs(tc_cfg::AbstractDict, L::Int)
-    pairs_spec = get(tc_cfg, "pairs", nothing)
-    all_pairs = parse_bool(get(tc_cfg, "all_pairs", false), false) ||
-                (pairs_spec isa AbstractString && lowercase(pairs_spec) == "all")
-    rmax = get(tc_cfg, "rmax", nothing)
-    smax = get(tc_cfg, "smax", nothing)
-
-    pairs = Vector{Tuple{Int,Int}}()
-    if all_pairs || rmax !== nothing || smax !== nothing
-        rmax_eff = rmax === nothing ? (L - 1) : min(Int(rmax), L - 1)
-        smax_eff = smax === nothing ? (L - 1) : min(Int(smax), L - 1)
-        for r in 0:rmax_eff, s in 0:smax_eff
-            push!(pairs, (r, s))
-        end
-    else
-        raw_pairs = pairs_spec === nothing ?
-                    [[0, 0], [0, 1], [0, 2], [1, 1], [1, 2], [1, 3], [2, 3]] :
-                    pairs_spec
-        pairs = [(Int(p[1]), Int(p[2])) for p in raw_pairs]
-    end
-    return pairs
-end
-
 function compute_energy_from_state(st, cfg::AbstractDict)
     if st.energy !== nothing
         return Float64(real(st.energy))
@@ -111,7 +88,9 @@ function main()
 
     dd_requested = haskey(obs_cfg, "density_density")
     sf_requested = haskey(obs_cfg, "structure_factor")
-    tc_requested = haskey(obs_cfg, "triple_corr")
+    if haskey(obs_cfg, "triple_corr")
+        println("Note: results_from_checkpoint.jl ignores observables.triple_corr by design.")
+    end
 
     dd_cfg = get(obs_cfg, "density_density", Dict{String,Any}())
     sf_cfg = get(obs_cfg, "structure_factor", Dict{String,Any}())
@@ -223,70 +202,6 @@ function main()
         )
     end
 
-    tc_cfg = get(obs_cfg, "triple_corr", Dict{String,Any}())
-    tc_species = parse_species(get(tc_cfg, "species", "both"), "observables.triple_corr")
-    tc_pairs = tc_requested ? resolve_pairs(tc_cfg, length(sites)) : Tuple{Int,Int}[]
-    tc_precompute = parse_bool(get(tc_cfg, "precompute", true), true)
-    tc_anchors = tc_requested ? zeros(Int, length(tc_pairs)) : nothing
-    tc_a = (tc_requested && ("Na" in tc_species)) ? zeros(Float64, length(tc_pairs)) : nothing
-    tc_b = (tc_requested && ("Nb" in tc_species)) ? zeros(Float64, length(tc_pairs)) : nothing
-
-    if tc_requested
-        npre_a = nothing
-        nnpre_a = nothing
-        npre_b = nothing
-        nnpre_b = nothing
-        if tc_precompute
-            if tc_a !== nothing
-                npre_a = precompute_n(psi, sites, "Na")
-                nnpre_a = precompute_nn(psi, sites, "Na")
-            end
-            if tc_b !== nothing
-                npre_b = precompute_n(psi, sites, "Nb")
-                nnpre_b = precompute_nn(psi, sites, "Nb")
-            end
-        end
-
-        for (idx, (r, s)) in enumerate(tc_pairs)
-            if tc_a !== nothing
-                if tc_precompute && npre_a !== nothing && nnpre_a !== nothing
-                    C, N = transl_avg_connected_nnn_no_cached(
-                        psi,
-                        sites,
-                        "Na",
-                        r,
-                        s;
-                        periodic=periodic,
-                        nvec=npre_a,
-                        nnmat=nnpre_a
-                    )
-                else
-                    C, N = transl_avg_connected_nnn_no(psi, sites, "Na", r, s; periodic=periodic)
-                end
-                tc_a[idx] = C
-                tc_anchors[idx] = N
-            end
-            if tc_b !== nothing
-                if tc_precompute && npre_b !== nothing && nnpre_b !== nothing
-                    C, N = transl_avg_connected_nnn_no_cached(
-                        psi,
-                        sites,
-                        "Nb",
-                        r,
-                        s;
-                        periodic=periodic,
-                        nvec=npre_b,
-                        nnmat=nnpre_b
-                    )
-                else
-                    C, N = transl_avg_connected_nnn_no(psi, sites, "Nb", r, s; periodic=periodic)
-                end
-                tc_b[idx] = C
-                tc_anchors[idx] = N
-            end
-        end
-    end
-
     HDF5.h5open(results_path, "w") do f
         g_meta = ensure_group(f, "meta")
         write_meta!(
@@ -345,17 +260,6 @@ function main()
             end
         end
 
-        if tc_requested
-            g_tc = ensure_group(g_obs, "triple_corr")
-            write_or_replace(g_tc, "pairs", hcat([p[1] for p in tc_pairs], [p[2] for p in tc_pairs]))
-            write_or_replace(g_tc, "anchors", tc_anchors)
-            if tc_a !== nothing
-                write_or_replace(g_tc, "C_no_a", tc_a)
-            end
-            if tc_b !== nothing
-                write_or_replace(g_tc, "C_no_b", tc_b)
-            end
-        end
     end
 
     println("Wrote checkpoint-derived observables to: $(abspath(results_path))")
