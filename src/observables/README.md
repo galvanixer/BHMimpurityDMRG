@@ -1,15 +1,19 @@
 # Observables Formula Reference
 
 This note defines the formulas implemented in `/src/observables` for density-based measurements.
-For a GitHub math-rendered version, see `README_math.md`.
 
 ## Notation
 
-- State: `|psi>`
-- Chain length: `L`
-- Site indices: `i, j, k in {1, ..., L}`
-- Species-resolved density operator at site `i`: `n_i` (implemented via `opname="Na"` or `opname="Nb"`)
-- Expectation value: `<O> = <psi| O |psi>`
+- State: $|\psi\rangle$
+- Chain length: $L$
+- Site indices: $i, j, k \in \{1,\dots,L\}$
+- Species-resolved density operator at site $i$: $n_i$ (implemented via `opname="Na"` or `opname="Nb"`)
+
+Expectation value:
+
+```math
+\langle O \rangle = \langle \psi | O | \psi \rangle
+```
 
 All formulas below are for one chosen `opname` at a time.
 
@@ -17,59 +21,59 @@ All formulas below are for one chosen `opname` at a time.
 
 Implemented by `expect_n`, `onsite_expect`, and `measure_densities`.
 
-```text
-<n_i>
+```math
+\langle n_i \rangle
 ```
 
 `measure_densities` returns:
 
-```text
-na[i] = <n_i^(a)>
-nb[i] = <n_i^(b)>
+```math
+n_a[i] = \langle n_i^{(a)} \rangle,\quad
+n_b[i] = \langle n_i^{(b)} \rangle
 ```
 
 ## 2. Two-point density correlators
 
 Implemented by `density_density_matrix`.
 
-For `i != j`:
+For $i \neq j$:
 
-```text
-nnmat[i,j] = <n_i n_j>
+```math
+\mathrm{nnmat}_{ij} = \langle n_i n_j \rangle
 ```
 
-For `i == j`, the code supports two conventions:
+For $i=j$, the code supports two conventions:
 
-- `same_site_convention="plain"`:
+`same_site_convention="plain"`:
 
-```text
-nnmat[i,i] = <n_i^2>
+```math
+\mathrm{nnmat}_{ii} = \langle n_i^2 \rangle
 ```
 
-- `same_site_convention="factorial"`:
+`same_site_convention="factorial"`:
 
-```text
-nnmat[i,i] = <n_i (n_i - 1)> = <n_i^2> - <n_i>
+```math
+\mathrm{nnmat}_{ii} = \langle n_i(n_i-1) \rangle = \langle n_i^2 \rangle - \langle n_i \rangle
 ```
 
 One-point vector:
 
-```text
-nvec[i] = <n_i>
+```math
+\mathrm{nvec}_i = \langle n_i \rangle
 ```
 
 ### Connected two-point matrix
 
-Implemented by `connected_density_density_matrix`:
+Implemented by `connected_density_density_matrix`.
 
-```text
-C[i,j] = nnmat[i,j] - <n_i><n_j>
+```math
+C_{ij} = \mathrm{nnmat}_{ij} - \langle n_i \rangle \langle n_j \rangle
 ```
 
 Note: with factorial diagonal,
 
-```text
-C[i,i] = <n_i (n_i - 1)> - <n_i>^2
+```math
+C_{ii} = \langle n_i(n_i-1)\rangle - \langle n_i \rangle^2
 ```
 
 which is not the usual variance.
@@ -78,16 +82,20 @@ which is not the usual variance.
 
 Implemented by `transl_avg_density_density`.
 
-For displacement `r`, define anchors `A_r` as sites where `j=i+r` is valid (open BC) or wrapped (periodic BC):
+For displacement $r$, define anchors $A_r$ as sites where $j=i+r$ is valid (open BC) or wrapped (periodic BC):
 
-```text
-G(r) = (1 / N_r) * sum_{i in A_r} <n_i n_{i+r}>
-C(r) = (1 / N_r) * sum_{i in A_r} [<n_i n_{i+r}> - <n_i><n_{i+r}>]
+```math
+G(r) = \frac{1}{N_r}\sum_{i\in A_r} \langle n_i n_{i+r}\rangle
+```
+
+```math
+C(r) = \frac{1}{N_r}\sum_{i\in A_r}
+\left[\langle n_i n_{i+r}\rangle - \langle n_i\rangle\langle n_{i+r}\rangle\right]
 ```
 
 with:
 
-```text
+```math
 N_r = |A_r|
 ```
 
@@ -95,7 +103,7 @@ returned as `anchors`.
 
 Boundary handling (`shifted_site`):
 
-- `periodic=false`: include only if `1 <= i+r <= L`
+- `periodic=false`: include only if $1 \le i+r \le L$
 - `periodic=true`: wrap with `mod1(i+r, L)`
 
 If `fold_min_image=true` with periodic BC, `r` values are folded by `min_image(r, L)` before averaging.
@@ -106,8 +114,8 @@ Implemented by `structure_factor_from_nn`.
 
 Wavevectors:
 
-```text
-k_m = 2*pi*m / L,  m = 0, ..., L-1
+```math
+k_m = \frac{2\pi m}{L},\quad m=0,\dots,L-1
 ```
 
 Construct matrix `M` as:
@@ -115,23 +123,23 @@ Construct matrix `M` as:
 1. Start from `nnmat`.
 2. If `factorial_diagonal=true`, convert diagonal to plain moments:
 
-```text
-M[i,i] = nnmat[i,i] + <n_i>
+```math
+M_{ii} = \mathrm{nnmat}_{ii} + \langle n_i \rangle
 ```
 
 3. If `connected=true`, subtract disconnected part:
 
-```text
-M[i,j] = M[i,j] - <n_i><n_j>
+```math
+M_{ij} = M_{ij} - \langle n_i \rangle \langle n_j \rangle
 ```
 
 Then compute:
 
-```text
-S(k_m) = (1/L) * sum_{i=1}^L sum_{j=1}^L exp(i*k_m*(i-j)) * M[i,j]
+```math
+S(k_m) = \frac{1}{L}\sum_{i=1}^{L}\sum_{j=1}^{L} e^{ik_m(i-j)} M_{ij}
 ```
 
-The implementation returns `real(S(k_m))`.
+The implementation returns $\mathrm{Re}[S(k_m)]$.
 
 ## 5. Three-point density correlators
 
@@ -141,19 +149,19 @@ Implemented by `expect_nnn`, `connected_nnn`.
 
 Raw moment:
 
-```text
-<n_i n_j n_k>
+```math
+\langle n_i n_j n_k \rangle
 ```
 
 Connected third cumulant:
 
-```text
-C3[i,j,k] =
-  <n_i n_j n_k>
-  - <n_i n_j><n_k>
-  - <n_i n_k><n_j>
-  - <n_j n_k><n_i>
-  + 2<n_i><n_j><n_k>
+```math
+C^{(3)}_{ijk} =
+\langle n_i n_j n_k \rangle
+- \langle n_i n_j \rangle\langle n_k \rangle
+- \langle n_i n_k \rangle\langle n_j \rangle
+- \langle n_j n_k \rangle\langle n_i \rangle
++ 2\langle n_i \rangle\langle n_j \rangle\langle n_k \rangle
 ```
 
 ### Normal-ordered moments
@@ -162,41 +170,44 @@ Implemented by `expect_nn_no`, `expect_nnn_no`.
 
 Two-point:
 
-```text
-<:n_i n_j:> = <n_i n_j>                 if i != j
-<:n_i n_i:> = <n_i (n_i - 1)>           if i == j
+```math
+\langle :n_i n_j: \rangle =
+\begin{cases}
+\langle n_i n_j \rangle, & i\neq j \\
+\langle n_i(n_i-1)\rangle, & i=j
+\end{cases}
 ```
 
 Three-point:
 
-- all distinct:
+All distinct:
 
-```text
-<:n_i n_j n_k:> = <n_i n_j n_k>
+```math
+\langle :n_i n_j n_k: \rangle = \langle n_i n_j n_k \rangle
 ```
 
-- one repeated index (example `i=j!=k`):
+One repeated index (example $i=j\neq k$):
 
-```text
-<:n_i^2 n_k:> = <n_i^2 n_k> - <n_i n_k>
+```math
+\langle :n_i^2 n_k: \rangle = \langle n_i^2 n_k \rangle - \langle n_i n_k \rangle
 ```
 
-- all equal:
+All equal:
 
-```text
-<:n_i^3:> = <n_i (n_i - 1) (n_i - 2)>
-         = <n_i^3> - 3<n_i^2> + 2<n_i>
+```math
+\langle :n_i^3: \rangle = \langle n_i(n_i-1)(n_i-2)\rangle
+= \langle n_i^3\rangle - 3\langle n_i^2\rangle + 2\langle n_i\rangle
 ```
 
 Connected normal-ordered third cumulant (implemented by `connected_nnn_no`):
 
-```text
-C3_no[i,j,k] =
-  <:n_i n_j n_k:>
-  - <:n_i n_j:><n_k>
-  - <:n_i n_k:><n_j>
-  - <:n_j n_k:><n_i>
-  + 2<n_i><n_j><n_k>
+```math
+C^{(3),\mathrm{no}}_{ijk} =
+\langle :n_i n_j n_k: \rangle
+- \langle :n_i n_j: \rangle \langle n_k \rangle
+- \langle :n_i n_k: \rangle \langle n_j \rangle
+- \langle :n_j n_k: \rangle \langle n_i \rangle
++ 2\langle n_i \rangle\langle n_j \rangle\langle n_k \rangle
 ```
 
 Cached variants (`precompute_n`, `precompute_nn`, `*_cached`) use the same formulas with reused one- and two-point moments.
@@ -211,13 +222,16 @@ Implemented by:
 - `transl_avg_connected_nnn_no`
 - `transl_avg_connected_nnn_no_cached`
 
-For displacements `(r, s)`:
+For displacements $(r,s)$:
 
-```text
-G3(r,s) = (1 / N_{r,s}) * sum_{i in A_{r,s}} <n_i n_{i+r} n_{i+s}>
-C3(r,s) = (1 / N_{r,s}) * sum_{i in A_{r,s}} C3[i, i+r, i+s]
+```math
+G^{(3)}(r,s) = \frac{1}{N_{r,s}}\sum_{i\in A_{r,s}} \langle n_i n_{i+r} n_{i+s}\rangle
+```
+
+```math
+C^{(3)}(r,s) = \frac{1}{N_{r,s}}\sum_{i\in A_{r,s}} C^{(3)}_{i,i+r,i+s}
 ```
 
 and similarly for normal-ordered quantities.
 
-`N_{r,s}` is the number of valid anchors returned by these functions.
+$N_{r,s}$ is the number of valid anchors returned by these functions.
