@@ -79,6 +79,9 @@ function main()
     sites = st.sites
     energy = compute_energy_from_state(st, cfg)
 
+    println("Evaluating observable: energy")
+
+    println("Evaluating observable: densities / totals")
     na, nb = if st.na !== nothing && st.nb !== nothing
         st.na, st.nb
     else
@@ -147,6 +150,7 @@ function main()
     anchors_b = nothing
 
     if dd_requested && "Na" in dd_species
+        println("Evaluating observable: density_density (species=a)")
         cnn_a = connected_density_density_matrix(nvec_a, nn_a)
         r_a, g_a, c_a, anchors_a = transl_avg_density_density(
             nvec_a,
@@ -157,6 +161,7 @@ function main()
         )
     end
     if dd_requested && "Nb" in dd_species
+        println("Evaluating observable: density_density (species=b)")
         cnn_b = connected_density_density_matrix(nvec_b, nn_b)
         r_b, g_b, c_b, anchors_b = transl_avg_density_density(
             nvec_b,
@@ -166,6 +171,9 @@ function main()
             fold_min_image=fold_min_image
         )
     end
+    if !dd_requested
+        println("Skipping observable: density_density (not requested)")
+    end
 
     k_a = nothing
     sf_a = nothing
@@ -174,6 +182,7 @@ function main()
     sf_b = nothing
     sfc_b = nothing
     if sf_requested && "Na" in sf_species
+        println("Evaluating observable: structure_factor (species=a)")
         k_a, sf_a = structure_factor_from_nn(
             nvec_a,
             nn_a;
@@ -188,6 +197,7 @@ function main()
         )
     end
     if sf_requested && "Nb" in sf_species
+        println("Evaluating observable: structure_factor (species=b)")
         k_b, sf_b = structure_factor_from_nn(
             nvec_b,
             nn_b;
@@ -200,6 +210,9 @@ function main()
             connected=true,
             factorial_diagonal=sf_factorial_diagonal
         )
+    end
+    if !sf_requested
+        println("Skipping observable: structure_factor (not requested)")
     end
 
     HDF5.h5open(results_path, "w") do f
