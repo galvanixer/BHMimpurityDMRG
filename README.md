@@ -36,6 +36,7 @@ Run the example apps:
 julia scripts/solve_ground_state.jl
 julia scripts/binding_energy_app.jl
 julia scripts/triple_corr_app.jl
+julia scripts/sample_configurations.jl
 ```
 
 ### YAML Parameters
@@ -91,6 +92,11 @@ observables:
       - [0, 0]
       - [0, 1]
       - [1, 2]
+  sampled_configs:
+    nsamples: 100000
+    top_k: 20
+    seed: 123
+    write_decoded_occupations: true
 
 io:
   save_state: true
