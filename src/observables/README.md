@@ -115,8 +115,20 @@ Implemented by `structure_factor_from_nn`.
 Wavevectors:
 
 ```math
-k_m = \frac{2\pi m}{L},\quad m=0,\dots,L-1
+k_m = \frac{2\pi m}{L}
 ```
+
+with centered integer modes:
+
+```math
+m=
+\begin{cases}
+-L/2,\dots,L/2-1, & L\ \text{even}\\
+-(L-1)/2,\dots,(L-1)/2, & L\ \text{odd}
+\end{cases}
+```
+
+For even $L$, $m=+L/2$ is equivalent to $m=-L/2$ (same momentum modulo $2\pi$), so only one is kept.
 
 Construct matrix `M` as:
 
