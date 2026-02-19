@@ -57,7 +57,14 @@ dmrg:
   #   max: 1200           # required in warmup mode
   #   min: 50             # optional start value (default min(50, max))
   #   warmup_sweeps: 6    # optional ramp length; if omitted uses doubling ramp
-  cutoff: 1e-10   # SVD truncation cutoff
+  cutoff: 1e-10   # SVD truncation cutoff (scalar, per-sweep vector, or warmup dict)
+  # Alternative cutoff schedule examples:
+  # cutoff: [1e-8, 1e-8, 1e-8, 1e-9, 1e-9, 1e-10]
+  # cutoff:
+  #   mode: "warmup"
+  #   start: 1e-8
+  #   stop: 1e-10
+  #   warmup_sweeps: 6
   outputlevel: 1  # ITensors verbosity (0 quiet, 1 sweep summary, >=2 detailed)
 
   # Early stopping

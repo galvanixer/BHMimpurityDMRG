@@ -85,6 +85,13 @@ hamiltonian:
 dmrg:
   nsweeps: 15
   cutoff: 1e-10
+  # Alternative: cutoff schedule (vector or warmup dict)
+  # cutoff: [1e-8, 1e-8, 1e-9, 1e-10]
+  # cutoff:
+  #   mode: "warmup"
+  #   start: 1e-8
+  #   stop: 1e-10
+  #   warmup_sweeps: 6
   maxdim: [50, 100, 200, 400, 600, 800, 800, 800, 800, 800, 800, 800]
   # Alternative: auto warmup to a target max bond dimension
   # maxdim:

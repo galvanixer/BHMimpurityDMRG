@@ -281,6 +281,88 @@ function expand_maxdim_schedule(maxdim, nsweeps::Int)
     return vcat(sched, fill(sched[end], nsweeps - length(sched)))
 end
 
+function expand_cutoff_schedule(cutoff, nsweeps::Int)
+    nsweeps >= 0 || error("nsweeps must be non-negative, got $nsweeps")
+    if nsweeps == 0
+        return Float64[]
+    end
+
+    function _dict_get(d::AbstractDict, keys::Vector{String}, default=nothing)
+        for k in keys
+            if haskey(d, k)
+                return d[k]
+            end
+            ks = Symbol(k)
+            if haskey(d, ks)
+                return d[ks]
+            end
+        end
+        return default
+    end
+
+    function _auto_cutoff_schedule(spec::AbstractDict)
+        value_raw = _dict_get(spec, ["value"], nothing)
+        if value_raw !== nothing
+            v = Float64(value_raw)
+            v > 0 || error("cutoff value must be > 0, got $v")
+            return [v]
+        end
+
+        start_raw = _dict_get(spec, ["start", "initial", "from", "max"], nothing)
+        stop_raw = _dict_get(spec, ["stop", "final", "target", "to", "min"], nothing)
+        if start_raw === nothing && stop_raw === nothing
+            error(
+                "cutoff warmup spec requires \"start\" and/or \"stop\" (aliases: initial/final/target)"
+            )
+        end
+
+        start_v = start_raw === nothing ? Float64(stop_raw) : Float64(start_raw)
+        stop_v = stop_raw === nothing ? Float64(start_raw) : Float64(stop_raw)
+        start_v > 0 || error("cutoff start/initial must be > 0, got $start_v")
+        stop_v > 0 || error("cutoff stop/final/target must be > 0, got $stop_v")
+
+        warmup_raw = _dict_get(spec, ["warmup_sweeps", "steps", "length"], nothing)
+        nwarm = warmup_raw === nothing ? nsweeps : Int(warmup_raw)
+        nwarm >= 1 || error("cutoff warmup_sweeps/steps/length must be >= 1, got $nwarm")
+        nwarm = min(nwarm, nsweeps)
+
+        if nwarm == 1
+            return [stop_v]
+        end
+
+        # Geometric ramp for cutoff so multi-decade schedules are natural.
+        ratio = (stop_v / start_v)^(1 / (nwarm - 1))
+        vals = Vector{Float64}(undef, nwarm)
+        vals[1] = start_v
+        for i in 2:nwarm
+            vals[i] = vals[i - 1] * ratio
+        end
+        vals[end] = stop_v
+        return vals
+    end
+
+    sched = if cutoff isa AbstractVector
+        vals = Float64.(collect(cutoff))
+        isempty(vals) && error("cutoff vector cannot be empty")
+        vals
+    elseif cutoff isa AbstractDict
+        spec = cutoff
+        mode_raw = _dict_get(spec, ["mode"], "warmup")
+        mode = lowercase(String(mode_raw))
+        mode in ("warmup", "auto", "automatic", "logspace", "geometric") ||
+            error("cutoff.mode must be one of: warmup, auto, automatic, logspace, geometric (got: $mode_raw)")
+        _auto_cutoff_schedule(spec)
+    else
+        [Float64(cutoff)]
+    end
+
+    all(v -> v > 0, sched) || error("all cutoff values must be > 0")
+    if length(sched) >= nsweeps
+        return sched[1:nsweeps]
+    end
+    return vcat(sched, fill(sched[end], nsweeps - length(sched)))
+end
+
 function current_params_sha256(params_path)::Union{Nothing,String}
     if params_path === nothing || !isfile(params_path)
         return nothing
@@ -432,6 +514,7 @@ function run_dmrg(; L=12,
         periodic=periodic
     )
     maxdim_schedule = expand_maxdim_schedule(maxdim, Int(nsweeps))
+    cutoff_schedule = expand_cutoff_schedule(cutoff, Int(nsweeps))
     sweep_offset = 0
     if st_checkpoint !== nothing && resume_mode_sym == :remaining && checkpoint_sweep > 0
         if checkpoint_sweep >= nsweeps
@@ -447,16 +530,21 @@ function run_dmrg(; L=12,
             return energy, psi0, sites, H
         end
         maxdim_schedule = maxdim_schedule[(checkpoint_sweep + 1):end]
+        cutoff_schedule = cutoff_schedule[(checkpoint_sweep + 1):end]
         sweep_offset = checkpoint_sweep
         outputlevel > 0 && println("Resuming remaining sweeps: $(length(maxdim_schedule)) (offset=$sweep_offset)")
     elseif st_checkpoint !== nothing && resume_mode_sym == :warm_start
         outputlevel > 0 && println("Warm-starting from checkpoint with full sweep schedule.")
     end
     isempty(maxdim_schedule) && error("No sweeps to run. Set nsweeps > 0.")
+    length(maxdim_schedule) == length(cutoff_schedule) ||
+        error(
+            "internal schedule mismatch: maxdim has $(length(maxdim_schedule)) sweeps, cutoff has $(length(cutoff_schedule)) sweeps"
+        )
 
     sweeps = Sweeps(length(maxdim_schedule))
     maxdim!(sweeps, maxdim_schedule...)
-    cutoff!(sweeps, cutoff)
+    cutoff!(sweeps, cutoff_schedule...)
     # Uncomment noise if you see convergence to excited states/local minima:
     # noise!(sweeps, 1e-6, 1e-7, 1e-8, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
 
