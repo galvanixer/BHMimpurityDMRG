@@ -35,8 +35,11 @@ export precompute_n, precompute_nn, expect_nnn_no_cached, connected_nnn_no_cache
 export transl_avg_nnn, transl_avg_connected_nnn
 export transl_avg_nnn_no, transl_avg_connected_nnn_no, transl_avg_connected_nnn_no_cached
 export top_sampled_configurations, infer_nmax_b_from_sites, decode_two_boson_configs
+export compute_observables, write_observables_hdf5!, OBSERVABLES_SCHEMA_VERSION
 export shifted_site, min_image
 export save_state, load_state, ensure_group, write_or_replace, write_meta!
-export load_params, dict_to_namedtuple, get_section, merge_sections, setup_logger, AUTHORS
+export load_params, dict_to_namedtuple, get_section, merge_sections
+export default_observables_path, with_observables_config
+export setup_logger, AUTHORS
 
 end

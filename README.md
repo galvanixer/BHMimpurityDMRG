@@ -16,6 +16,7 @@ DMRG simulations for a two-species Bose-Hubbard model with impurities, custom bo
 - `src/observables/` — observables and correlators
 - `scripts/` — runnable examples / apps
 - `configs/parameters.yaml` — example configuration
+- `configs/observables.yaml` — observables-only configuration
 
 ## Install Dependencies
 This is a Julia project intended to be used in a Julia environment with:
@@ -40,9 +41,14 @@ julia scripts/sample_configurations.jl
 ```
 
 ### YAML Parameters
-By default, scripts load `configs/parameters.yaml`. You can point to a different file:
+By default, scripts load:
+- `configs/parameters.yaml` for model/DMRG settings
+- `configs/observables.yaml` for observable settings
+
+You can point to different files:
 ```bash
 PARAMS=/path/to/params.yaml julia scripts/triple_corr_app.jl
+OBSERVABLES=/path/to/observables.yaml julia scripts/triple_corr_app.jl
 ```
 
 Example `parameters.yaml`:
@@ -87,13 +93,29 @@ dmrg:
   #   min: 50
   #   warmup_sweeps: 6
 
+io:
+  save_state: true
+  state_save_path: "dmrg_state.h5"
+  results_path: "results.h5"
+  log_path: "run.log"
+  console_log: true
+  console_level: "info"
+
+```
+
+Example `observables.yaml`:
+```yaml
 observables:
+  density_density:
+    species: "both"
+    max_r: 6
+    fold_min_image: false
+    same_site_convention: "factorial"
+  structure_factor:
+    species: "both"
   triple_corr:
-    species: "both"   # "a", "b", or "both"
-    all_pairs: false  # If true, compute on a grid. If false, use the specified pairs below.
-    rmax: 6           # Optional: restrict r in 0..rmax (used if all_pairs=true or rmax/smax set)
-    smax: 6           # Optional: restrict s in 0..smax
-    precompute: true  # Precompute ⟨n_i⟩ and ⟨n_i n_j⟩ for speed
+    species: "both"
+    all_pairs: false
     pairs:
       - [0, 0]
       - [0, 1]
@@ -103,15 +125,6 @@ observables:
     top_k: 20
     seed: 123
     write_decoded_occupations: true
-
-io:
-  save_state: true
-  state_save_path: "dmrg_state.h5"
-  results_path: "results.h5"
-  log_path: "run.log"
-  console_log: true
-  console_level: "info"
-
 ```
 
 Binding energy config example:

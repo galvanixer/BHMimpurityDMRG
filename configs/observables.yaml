@@ -1,0 +1,40 @@
+# ----------------------------
+# Observable controls
+# ----------------------------
+observables:
+  energy:
+    store_history: false  # Reserved for future sweep-wise energy history
+
+  densities: {}
+  totals: {}
+
+  density_density:
+    species: "both"            # "a", "b", or "both"
+    max_r: 6                   # Correlator distances r in [0, max_r]; if omitted, uses [0, L-1]
+    fold_min_image: false      # If true with periodic lattice, fold r using minimum-image convention
+    same_site_convention: "factorial"  # "factorial" => n(n-1) on i=j, "plain" => n^2 on i=j
+
+  structure_factor:
+    species: "both"  # "a", "b", or "both"
+
+  triple_corr:
+    species: "both"   # "a", "b", or "both"
+    all_pairs: true   # true => compute all (r,s) on a grid; false => use explicit list below
+    rmax: 6           # Max r for grid mode (or when rmax/smax are provided)
+    smax: 6           # Max s for grid mode
+    precompute: true  # Precompute ⟨n_i⟩ and ⟨n_i n_j⟩ to accelerate connected 3-point evaluation
+    pairs:
+      - [0, 0]
+      - [0, 1]
+      - [0, 2]
+      - [1, 1]
+      - [1, 2]
+      - [1, 3]
+      - [2, 3]
+    output_path: "triple_corr.h5"  # Reserved path field; current app writes to io.results_path
+
+  sampled_configs:
+    nsamples: 100000
+    top_k: 20
+    seed: 123
+    write_decoded_occupations: true

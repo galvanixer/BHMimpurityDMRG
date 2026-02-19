@@ -11,14 +11,15 @@ using SHA
 function print_help(io::IO=stdout)
     script = basename(@__FILE__)
     println(io, "Usage:")
-    println(io, "  julia --project=. scripts/$script [params_path] [state_path] [results_path]")
+    println(io, "  julia --project=. scripts/$script [params_path] [state_path] [results_path] [observables_path]")
     println(io, "")
     println(io, "Positional arguments:")
     println(io, "  params_path   Optional YAML config path. Defaults to ENV[\"PARAMS\"] or configs/parameters.yaml")
     println(io, "  state_path    Optional state HDF5 path. Defaults to io.state_save_path or dmrg_state.h5")
     println(io, "  results_path  Optional results HDF5 path. Defaults to io.results_path or results.h5")
+    println(io, "  observables_path Optional observables YAML path. Defaults to ENV[\"OBSERVABLES\"] or configs/observables.yaml")
     println(io, "")
-    println(io, "Config section (in parameters YAML):")
+    println(io, "Config section (in observables YAML):")
     println(io, "  observables.sampled_configs.nsamples")
     println(io, "  observables.sampled_configs.top_k")
     println(io, "  observables.sampled_configs.seed")
@@ -27,7 +28,7 @@ function print_help(io::IO=stdout)
     println(io, "Examples:")
     println(io, "  julia --project=. scripts/$script")
     println(io, "  ./bin/sample_configurations")
-    println(io, "  julia --project=. scripts/$script configs/parameters.yaml dmrg_state.h5 results.h5")
+    println(io, "  julia --project=. scripts/$script configs/parameters.yaml dmrg_state.h5 results.h5 configs/observables.yaml")
 end
 
 function parse_bool(x, default::Bool=false)
@@ -54,16 +55,23 @@ function main()
         return nothing
     end
 
-    if length(ARGS) > 3
+    if length(ARGS) > 4
         print_help(stderr)
-        error("Expected at most 3 positional arguments, got $(length(ARGS)).")
+        error("Expected at most 4 positional arguments, got $(length(ARGS)).")
     end
 
     params_path = length(ARGS) >= 1 ? ARGS[1] :
                   get(ENV, "PARAMS", joinpath(@__DIR__, "..", "configs", "parameters.yaml"))
+    observables_path_arg = length(ARGS) >= 4 ? ARGS[4] : nothing
 
-    cfg = isfile(params_path) ? load_params(params_path) : Dict{String,Any}()
-    io_cfg = get(cfg, "io", Dict{String,Any}())
+    cfg_base = isfile(params_path) ? load_params(params_path) : Dict{String,Any}()
+    merged_cfg = with_observables_config(cfg_base; observables_path=observables_path_arg)
+    cfg = merged_cfg.cfg
+    observables_path = merged_cfg.observables_path
+    observables_loaded = merged_cfg.observables_loaded
+    params_has_observables = haskey(cfg_base, "observables") || haskey(cfg_base, :observables)
+
+    io_cfg = get(cfg_base, "io", Dict{String,Any}())
     obs_cfg = get(cfg, "observables", Dict{String,Any}())
     samp_cfg = get(obs_cfg, "sampled_configs", Dict{String,Any}())
 
@@ -79,7 +87,12 @@ function main()
     logger = logcfg.logger
 
     with_logger(logger) do
-        @info "Sampling top configurations from saved DMRG state" params_path=params_path state_path=state_path results_path=results_path nsamples=nsamples top_k=top_k seed=seed
+        @info "Sampling top configurations from saved DMRG state" params_path=params_path observables_path=observables_path observables_loaded=observables_loaded state_path=state_path results_path=results_path nsamples=nsamples top_k=top_k seed=seed
+        if !observables_loaded && params_has_observables
+            @info "Observables file not found; falling back to observables in parameters config" observables_path=observables_path
+        elseif !observables_loaded
+            @warn "Observables file not found and no observables section in parameters config; defaults will be used" observables_path=observables_path
+        end
 
         isfile(state_path) || error("State file not found: $state_path. Run scripts/solve_ground_state.jl first.")
         st = load_state(state_path)
@@ -109,6 +122,10 @@ function main()
                 state_path=state_path,
                 state_params_sha256=current_hash
             )
+            if observables_loaded
+                write_or_replace(g_meta, "observables_path", abspath(observables_path))
+                write_or_replace(g_meta, "observables_sha256", bytes2hex(SHA.sha256(read(observables_path, String))))
+            end
 
             g_obs = ensure_group(f, "observables")
             g_samp = ensure_group(g_obs, "sampled_configs")
