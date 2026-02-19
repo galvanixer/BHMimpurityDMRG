@@ -11,13 +11,13 @@ using SHA
 function print_help(io::IO=stdout)
     script = basename(@__FILE__)
     println(io, "Usage:")
-    println(io, "  julia --project=. scripts/$script [params_path] [state_path] [results_path] [observables_path]")
+    println(io, "  julia --project=. scripts/$script [params_path] [observables_path] [state_path] [results_path]")
     println(io, "")
     println(io, "Positional arguments:")
-    println(io, "  params_path   Optional YAML config path. Defaults to ENV[\"PARAMS\"] or configs/parameters.yaml")
-    println(io, "  state_path    Optional state HDF5 path. Defaults to io.state_save_path or dmrg_state.h5")
-    println(io, "  results_path  Optional results HDF5 path. Defaults to io.results_path or results.h5")
-    println(io, "  observables_path Optional observables YAML path. Defaults to ENV[\"OBSERVABLES\"] or configs/observables.yaml")
+    println(io, "  params_path       Optional model/DMRG YAML path. Defaults to ./parameters.yaml")
+    println(io, "  observables_path  Optional observables YAML path. Defaults to ./observables.yaml")
+    println(io, "  state_path        Optional state HDF5 path. Defaults to io.state_save_path or dmrg_state.h5")
+    println(io, "  results_path      Optional results HDF5 path. Defaults to io.results_path or results.h5")
     println(io, "")
     println(io, "Config section (in observables YAML):")
     println(io, "  observables.sampled_configs.nsamples")
@@ -28,7 +28,7 @@ function print_help(io::IO=stdout)
     println(io, "Examples:")
     println(io, "  julia --project=. scripts/$script")
     println(io, "  ./bin/sample_configurations")
-    println(io, "  julia --project=. scripts/$script configs/parameters.yaml dmrg_state.h5 results.h5 configs/observables.yaml")
+    println(io, "  julia --project=. scripts/$script parameters.yaml observables.yaml dmrg_state.h5 results.h5")
 end
 
 function parse_bool(x, default::Bool=false)
@@ -60,9 +60,8 @@ function main()
         error("Expected at most 4 positional arguments, got $(length(ARGS)).")
     end
 
-    params_path = length(ARGS) >= 1 ? ARGS[1] :
-                  get(ENV, "PARAMS", joinpath(@__DIR__, "..", "configs", "parameters.yaml"))
-    observables_path_arg = length(ARGS) >= 4 ? ARGS[4] : nothing
+    params_path = length(ARGS) >= 1 ? ARGS[1] : "parameters.yaml"
+    observables_path_arg = length(ARGS) >= 2 ? ARGS[2] : "observables.yaml"
 
     cfg_base = isfile(params_path) ? load_params(params_path) : Dict{String,Any}()
     merged_cfg = with_observables_config(cfg_base; observables_path=observables_path_arg)
@@ -75,8 +74,8 @@ function main()
     obs_cfg = get(cfg, "observables", Dict{String,Any}())
     samp_cfg = get(obs_cfg, "sampled_configs", Dict{String,Any}())
 
-    state_path = length(ARGS) >= 2 ? ARGS[2] : get(io_cfg, "state_save_path", "dmrg_state.h5")
-    results_path = length(ARGS) >= 3 ? ARGS[3] : get(io_cfg, "results_path", "results.h5")
+    state_path = length(ARGS) >= 3 ? ARGS[3] : get(io_cfg, "state_save_path", "dmrg_state.h5")
+    results_path = length(ARGS) >= 4 ? ARGS[4] : get(io_cfg, "results_path", "results.h5")
 
     nsamples = Int(get(samp_cfg, "nsamples", 100_000))
     top_k = Int(get(samp_cfg, "top_k", 20))
