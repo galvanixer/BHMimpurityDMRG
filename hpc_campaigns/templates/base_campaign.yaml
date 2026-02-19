@@ -6,6 +6,7 @@ campaign:
   params_filename: "parameters.yaml"
 
 base_config: "configs/parameters.yaml"  # base config copied for each run before applying overrides/sweep values
+# Tip: set `meta.date: AUTO` inside base_config to stamp launch time into generated run configs.
 
 overrides:  # applied to every run (dot-path keys)
   io.console_log: false

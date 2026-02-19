@@ -182,6 +182,29 @@ function maybe_expand_auto_seeds!(root_cfg::AbstractDict, sweep::AbstractDict)
     println("  seeds: ", preview)
 end
 
+@inline function dict_get(d::AbstractDict, key::String, default=nothing)
+    if haskey(d, key)
+        return d[key]
+    end
+    ks = Symbol(key)
+    if haskey(d, ks)
+        return d[ks]
+    end
+    return default
+end
+
+function maybe_expand_auto_meta_date!(cfg::AbstractDict; timestamp::AbstractString)
+    meta = dict_get(cfg, "meta", nothing)
+    meta isa AbstractDict || return false
+
+    date_value = dict_get(meta, "date", nothing)
+    if date_value isa AbstractString && uppercase(strip(String(date_value))) == "AUTO"
+        set_nested!(cfg, "meta.date", String(timestamp))
+        return true
+    end
+    return false
+end
+
 function main()
     length(ARGS) >= 1 ||
         error("Usage: julia hpc_campaigns/launch_campaign.jl <campaign.yaml> [output_root_override]")
@@ -243,6 +266,9 @@ function main()
     open(jobfile_path, "w") do _ end
     open(run_dirs_path, "w") do _ end
 
+    campaign_timestamp = Dates.format(now(), dateformat"yyyy-mm-dd HH:MM:SS")
+    auto_date_expanded_count = 0
+
     for (i, assign) in enumerate(assigns)
         run_id = @sprintf("run_%04d", i)
         run_dir = joinpath(campaign_dir, run_id)
@@ -251,6 +277,7 @@ function main()
         cfg = deepcopy(base_cfg)
         apply_overrides!(cfg, overrides)
         apply_overrides!(cfg, assign)
+        auto_date_expanded_count += maybe_expand_auto_meta_date!(cfg; timestamp=campaign_timestamp) ? 1 : 0
 
         # Force output files to stay in each run directory.
         set_nested!(cfg, "io.state_save_path", abspath(joinpath(run_dir, "dmrg_state.h5")))
@@ -281,6 +308,9 @@ function main()
     println("  dir:  ", campaign_dir)
     println("  runs_csv: ", index_path)
     println("  jobfile: ", jobfile_path)
+    if auto_date_expanded_count > 0
+        println("  meta.date AUTO expanded in $auto_date_expanded_count run(s) as: ", campaign_timestamp)
+    end
     println("Next step:")
     println("  bash hpc_campaigns/slurm/submit_multilauncher.sh ", campaign_dir)
 end

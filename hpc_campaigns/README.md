@@ -94,4 +94,6 @@ This gives 4 runs total:
   - `julia --project=<repo_root> <app_script> <run_dir>/parameters.yaml`
 - Paths for state/results/log/checkpoint are written as absolute paths per run.
 - `meta.run_name` in each generated config is set to `run_XXXX`.
+- If base config has `meta.date: AUTO`, `launch_campaign.jl` replaces it with the
+  current launch timestamp (`YYYY-mm-dd HH:MM:SS`) in generated run configs.
 - This tooling is intentionally outside `src/` to keep the library scheduler-agnostic.
