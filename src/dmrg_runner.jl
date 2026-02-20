@@ -23,6 +23,8 @@ mutable struct EarlyStopDMRGObserver <: ITensorMPS.AbstractObserver
     checkpoint_save_densities::Bool
     checkpoint_density_every::Int
     sweep_offset::Int
+    init_na::Union{Nothing,Vector{Float64}}
+    init_nb::Union{Nothing,Vector{Float64}}
 end
 
 function EarlyStopDMRGObserver(;
@@ -36,8 +38,12 @@ function EarlyStopDMRGObserver(;
     checkpoint_params_path::Union{Nothing,AbstractString}=nothing,
     checkpoint_save_densities::Bool=false,
     checkpoint_density_every::Int=1,
-    sweep_offset::Int=0
+    sweep_offset::Int=0,
+    init_na=nothing,
+    init_nb=nothing
 )
+    init_na_v = init_na === nothing ? nothing : Float64.(collect(init_na))
+    init_nb_v = init_nb === nothing ? nothing : Float64.(collect(init_nb))
     return EarlyStopDMRGObserver(
         Float64[],
         Float64[],
@@ -52,7 +58,9 @@ function EarlyStopDMRGObserver(;
         checkpoint_params_path === nothing ? nothing : String(checkpoint_params_path),
         checkpoint_save_densities,
         max(1, checkpoint_density_every),
-        max(0, sweep_offset)
+        max(0, sweep_offset),
+        init_na_v,
+        init_nb_v
     )
 end
 
@@ -101,6 +109,8 @@ function maybe_checkpoint!(
             params_path=obs.checkpoint_params_path,
             na=na,
             nb=nb,
+            init_na=obs.init_na,
+            init_nb=obs.init_nb,
             checkpoint_sweep=sweep
         )
         mv(tmp_path, path; force=true)
@@ -381,6 +391,29 @@ function parse_bool(x)
     error("Cannot parse boolean value from: $x")
 end
 
+"""
+    sites_compatible_for_resume(sites_requested, sites_checkpoint)
+
+Check if two sets of sites are compatible for resuming a DMRG calculation.
+
+This function verifies that the requested sites and checkpoint sites have matching
+properties, ensuring that a previous DMRG calculation can be safely resumed with
+the new site configuration.
+
+# Arguments
+- `sites_requested`: The sites configuration for the current/new DMRG run
+- `sites_checkpoint`: The sites configuration from a previous checkpoint
+
+# Returns
+- `Bool`: `true` if the sites are compatible for resume, `false` otherwise
+
+# Compatibility criteria
+Two site configurations are considered compatible if:
+1. They have the same number of sites
+2. Each corresponding site has the same physical dimension
+3. Each corresponding site has the same quantum number structure (both with or without QNs)
+
+"""
 function sites_compatible_for_resume(sites_requested, sites_checkpoint)
     if length(sites_requested) != length(sites_checkpoint)
         return false
@@ -486,17 +519,30 @@ function run_dmrg(; L=12,
     ) : nothing
 
     checkpoint_sweep = 0
+    init_na = nothing
+    init_nb = nothing
     if st_checkpoint !== nothing
         sites = st_checkpoint.sites
         psi0 = st_checkpoint.psi
         checkpoint_sweep = st_checkpoint.checkpoint_sweep === nothing ? 0 : Int(st_checkpoint.checkpoint_sweep)
+        init_na = st_checkpoint.init_na
+        init_nb = st_checkpoint.init_nb
+        if init_na === nothing || init_nb === nothing
+            _, init_na, init_nb = dmrg_initial_configuration(;
+                L=L,
+                nmax_a=nmax_a, nmax_b=nmax_b,
+                Na_total=Na_total, Nb_total=Nb_total,
+                impurity_distribution=impurity_distribution,
+                seed=seed
+            )
+        end
         if outputlevel > 0
             println("Loaded checkpoint from $checkpoint_path (checkpoint_sweep=$checkpoint_sweep)")
         end
     else
         sites = requested_sites
         # Initial state in the correct (Na, Nb) sector
-        conf, _, _ = dmrg_initial_configuration(;
+        conf, init_na, init_nb = dmrg_initial_configuration(;
             L=L,
             nmax_a=nmax_a, nmax_b=nmax_b,
             Na_total=Na_total, Nb_total=Nb_total,
@@ -559,7 +605,9 @@ function run_dmrg(; L=12,
         checkpoint_params_path=checkpoint_params_path,
         checkpoint_save_densities=checkpoint_save_densities,
         checkpoint_density_every=Int(checkpoint_density_every),
-        sweep_offset=sweep_offset
+        sweep_offset=sweep_offset,
+        init_na=init_na,
+        init_nb=init_nb
     )
 
     energy, psi = dmrg(H, psi0, sweeps; outputlevel=outputlevel, observer=observer)
