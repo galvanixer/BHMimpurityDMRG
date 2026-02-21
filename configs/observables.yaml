@@ -38,3 +38,4 @@ observables:
     top_k: 20
     seed: 123
     write_decoded_occupations: true
+    log_to_file: false

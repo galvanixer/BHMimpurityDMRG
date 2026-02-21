@@ -11,7 +11,7 @@ using SHA
 function print_help(io::IO=stdout)
     script = basename(@__FILE__)
     println(io, "Usage:")
-    println(io, "  julia --project=. scripts/$script [params_path] [observables_path] [state_path] [results_path]")
+    println(io, "  julia --project=. scripts/$script [--log-to-file|--no-log-to-file] [params_path] [observables_path] [state_path] [results_path]")
     println(io, "")
     println(io, "Positional arguments:")
     println(io, "  params_path       Optional model/DMRG YAML path. Defaults to ./parameters.yaml")
@@ -19,14 +19,20 @@ function print_help(io::IO=stdout)
     println(io, "  state_path        Optional state HDF5 path. Defaults to io.state_save_path or dmrg_state.h5")
     println(io, "  results_path      Optional results HDF5 path. Defaults to io.results_path or results.h5")
     println(io, "")
+    println(io, "Flags:")
+    println(io, "  --log-to-file     Enable file logging for this script")
+    println(io, "  --no-log-to-file  Disable file logging (default)")
+    println(io, "")
     println(io, "Config section (in observables YAML):")
     println(io, "  observables.sampled_configs.nsamples")
     println(io, "  observables.sampled_configs.top_k")
     println(io, "  observables.sampled_configs.seed")
     println(io, "  observables.sampled_configs.write_decoded_occupations")
+    println(io, "  observables.sampled_configs.log_to_file")
     println(io, "")
     println(io, "Examples:")
     println(io, "  julia --project=. scripts/$script")
+    println(io, "  julia --project=. scripts/$script --log-to-file")
     println(io, "  ./bin/sample_configurations")
     println(io, "  julia --project=. scripts/$script parameters.yaml observables.yaml dmrg_state.h5 results.h5")
 end
@@ -49,19 +55,52 @@ function parse_optional_int(x)
     return Int(x)
 end
 
+function parse_args(args)
+    pos = String[]
+    log_to_file_override = nothing
+    for a in args
+        if a in ("-h", "--help")
+            continue
+        elseif a == "--log-to-file"
+            log_to_file_override = true
+        elseif a == "--no-log-to-file"
+            log_to_file_override = false
+        elseif startswith(a, "--")
+            print_help(stderr)
+            error("Unknown flag: $a")
+        else
+            push!(pos, a)
+        end
+    end
+    return pos, log_to_file_override
+end
+
+function parse_console_level(io_cfg::AbstractDict)
+    level_str = lowercase(String(get(io_cfg, "console_level", "info")))
+    if level_str == "debug"
+        return Logging.Debug
+    elseif level_str == "warn"
+        return Logging.Warn
+    elseif level_str == "error"
+        return Logging.Error
+    end
+    return Logging.Info
+end
+
 function main()
     if any(a -> a in ("-h", "--help"), ARGS)
         print_help()
         return nothing
     end
 
-    if length(ARGS) > 4
+    pos_args, log_to_file_override = parse_args(ARGS)
+    if length(pos_args) > 4
         print_help(stderr)
-        error("Expected at most 4 positional arguments, got $(length(ARGS)).")
+        error("Expected at most 4 positional arguments, got $(length(pos_args)).")
     end
 
-    params_path = length(ARGS) >= 1 ? ARGS[1] : "parameters.yaml"
-    observables_path_arg = length(ARGS) >= 2 ? ARGS[2] : "observables.yaml"
+    params_path = length(pos_args) >= 1 ? pos_args[1] : "parameters.yaml"
+    observables_path_arg = length(pos_args) >= 2 ? pos_args[2] : "observables.yaml"
 
     cfg_base = isfile(params_path) ? load_params(params_path) : Dict{String,Any}()
     merged_cfg = with_observables_config(cfg_base; observables_path=observables_path_arg)
@@ -74,19 +113,26 @@ function main()
     obs_cfg = get(cfg, "observables", Dict{String,Any}())
     samp_cfg = get(obs_cfg, "sampled_configs", Dict{String,Any}())
 
-    state_path = length(ARGS) >= 3 ? ARGS[3] : get(io_cfg, "state_save_path", "dmrg_state.h5")
-    results_path = length(ARGS) >= 4 ? ARGS[4] : get(io_cfg, "results_path", "results.h5")
+    state_path = length(pos_args) >= 3 ? pos_args[3] : get(io_cfg, "state_save_path", "dmrg_state.h5")
+    results_path = length(pos_args) >= 4 ? pos_args[4] : get(io_cfg, "results_path", "results.h5")
 
     nsamples = Int(get(samp_cfg, "nsamples", 100_000))
     top_k = Int(get(samp_cfg, "top_k", 20))
     seed = parse_optional_int(get(samp_cfg, "seed", nothing))
     write_decoded = parse_bool(get(samp_cfg, "write_decoded_occupations", true), true)
-
-    logcfg = setup_logger(io_cfg; default_log_path="sampled_configs.log")
-    logger = logcfg.logger
+    log_to_file_cfg = parse_bool(get(samp_cfg, "log_to_file", false), false)
+    log_to_file = log_to_file_override === nothing ? log_to_file_cfg : log_to_file_override
+    logio = nothing
+    logger = if log_to_file
+        logcfg = setup_logger(io_cfg; default_log_path="sampled_configs.log")
+        logio = logcfg.logio
+        logcfg.logger
+    else
+        ConsoleLogger(stderr, parse_console_level(io_cfg))
+    end
 
     with_logger(logger) do
-        @info "Sampling top configurations from saved DMRG state" params_path=params_path observables_path=observables_path observables_loaded=observables_loaded state_path=state_path results_path=results_path nsamples=nsamples top_k=top_k seed=seed
+        @info "Sampling top configurations from saved DMRG state" params_path=params_path observables_path=observables_path observables_loaded=observables_loaded state_path=state_path results_path=results_path nsamples=nsamples top_k=top_k seed=seed log_to_file=log_to_file
         if !observables_loaded && params_has_observables
             @info "Observables file not found; falling back to observables in parameters config" observables_path=observables_path
         elseif !observables_loaded
@@ -158,7 +204,9 @@ function main()
         @info "Wrote sampled-configuration results" results_path=results_path top_kept=size(sampled.configs, 1) unique_configurations=sampled.unique_configurations
     end
 
-    close(logcfg.logio)
+    if logio !== nothing
+        close(logio)
+    end
     return nothing
 end
 
