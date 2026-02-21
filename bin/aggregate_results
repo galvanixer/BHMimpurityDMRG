@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+set -euo pipefail
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+exec julia --startup-file=no --project="$REPO_ROOT/postprocess" "$REPO_ROOT/postprocess/aggregate_results.jl" "$@"

@@ -117,6 +117,7 @@ function main()
             state_path=checkpoint_path,
             state_params_sha256=st.params_sha256
         )
+        write_results_schema!(g_meta)
         if observables_loaded
             write_or_replace(g_meta, "observables_path", abspath(observables_path))
             write_or_replace(g_meta, "observables_sha256", bytes2hex(SHA.sha256(read(observables_path, String))))

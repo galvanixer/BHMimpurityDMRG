@@ -37,7 +37,8 @@ export transl_avg_nnn_no, transl_avg_connected_nnn_no, transl_avg_connected_nnn_
 export top_sampled_configurations, infer_nmax_b_from_sites, decode_two_boson_configs
 export compute_observables, write_observables_hdf5!, OBSERVABLES_SCHEMA_VERSION
 export shifted_site, min_image
-export save_state, load_state, ensure_group, write_or_replace, write_meta!
+export save_state, load_state, ensure_group, write_or_replace, write_meta!, write_results_schema!
+export RESULTS_SCHEMA_ID, RESULTS_SCHEMA_VERSION, RESULTS_WRITER
 export load_params, dict_to_namedtuple, get_section, merge_sections
 export default_observables_path, with_observables_config
 export setup_logger, AUTHORS

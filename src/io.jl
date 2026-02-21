@@ -5,6 +5,10 @@
 using Dates
 using SHA
 
+const RESULTS_SCHEMA_ID = "bhmimpuritydmrg.results"
+const RESULTS_SCHEMA_VERSION = "1.0.0"
+const RESULTS_WRITER = "BHMimpurityDMRG"
+
 function ensure_group(parent, name::AbstractString)
     return haskey(parent, name) ? parent[name] : HDF5.create_group(parent, name)
 end
@@ -63,6 +67,25 @@ function write_meta!(g_meta; params_path=nothing, params_text=nothing, state_pat
             # Best-effort metadata only; ignore parse errors
         end
     end
+    return nothing
+end
+
+"""
+    write_results_schema!(g_meta; schema_id=RESULTS_SCHEMA_ID,
+                          schema_version=RESULTS_SCHEMA_VERSION,
+                          writer=RESULTS_WRITER)
+
+Write canonical schema metadata for a `results.h5` file under `/meta`.
+"""
+function write_results_schema!(
+    g_meta;
+    schema_id::AbstractString=RESULTS_SCHEMA_ID,
+    schema_version::AbstractString=RESULTS_SCHEMA_VERSION,
+    writer::AbstractString=RESULTS_WRITER
+)
+    write_or_replace(g_meta, "results_schema_id", String(schema_id))
+    write_or_replace(g_meta, "results_schema_version", String(schema_version))
+    write_or_replace(g_meta, "results_writer", String(writer))
     return nothing
 end
 

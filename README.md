@@ -15,6 +15,7 @@ DMRG simulations for a two-species Bose-Hubbard model with impurities, custom bo
 - `src/` — library code (module `BHMimpurityDMRG`)
 - `src/observables/` — observables and correlators
 - `scripts/` — runnable examples / apps
+- `postprocess/` — campaign aggregation tools (separate from core solver code)
 - `configs/parameters.yaml` — example configuration
 - `configs/observables.yaml` — observables-only configuration
 
@@ -38,6 +39,11 @@ julia scripts/solve_ground_state.jl
 julia scripts/binding_energy_app.jl
 julia scripts/triple_corr_app.jl
 julia scripts/sample_configurations.jl
+```
+
+Aggregate many HPC runs into one JLD2 file:
+```bash
+./bin/aggregate_results runs/<campaign_name>
 ```
 
 ### YAML Parameters

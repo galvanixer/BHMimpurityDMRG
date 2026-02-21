@@ -17,6 +17,7 @@ Thumbs.db
 # Data / results
 *.h5
 *.hdf5
+*.jld2
 *.csv
 *.npy
 *.npz

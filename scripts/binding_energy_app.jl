@@ -95,6 +95,7 @@ function main()
         HDF5.h5open(results_path, mode) do f
             g_meta = ensure_group(f, "meta")
             write_meta!(g_meta; params_path=params_path)
+            write_results_schema!(g_meta)
             g_obs = ensure_group(f, "observables")
             g_be = ensure_group(g_obs, "binding_energy")
             write_or_replace(g_be, "E0", res.E0)

@@ -1,0 +1,18 @@
+profiles:
+  summary_only:
+    include_arrays: false
+    include_density_vectors: false
+    include_density_density: false
+    include_structure_factor: false
+    include_triple_corr: false
+    include_sampled_configs: false
+    include_binding_energy: true
+
+  full:
+    include_arrays: true
+    include_density_vectors: true
+    include_density_density: true
+    include_structure_factor: true
+    include_triple_corr: true
+    include_sampled_configs: false
+    include_binding_energy: true

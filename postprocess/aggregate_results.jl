@@ -1,0 +1,321 @@
+# Author: Tanul Gupta <tanulgupta123@gmail.com>
+# License: MIT
+# Copyright (c) 2026 Tanul Gupta
+
+using Dates
+using HDF5
+using JLD2
+using YAML
+
+include(joinpath(@__DIR__, "parsers.jl"))
+
+function print_help(io::IO=stdout)
+    script = basename(@__FILE__)
+    println(io, "Usage:")
+    println(io, "  julia --startup-file=no --project=postprocess postprocess/$script [options] <campaign_root> [output_jld2]")
+    println(io, "")
+    println(io, "Options:")
+    println(io, "  --profile <name>       Extraction profile name from extract_profile.yaml (default: summary_only)")
+    println(io, "  --profile-file <path>  YAML file containing profiles (default: postprocess/extract_profile.yaml)")
+    println(io, "  --pattern <regex>      Regex for result files within campaign_root (default: ^results.*\\\\.(h5|hdf5)\$)")
+    println(io, "  --quiet                Reduce progress output")
+    println(io, "  -h, --help             Show this help")
+    println(io, "")
+    println(io, "Examples:")
+    println(io, "  julia --startup-file=no --project=postprocess postprocess/$script runs/my_campaign")
+    println(io, "  julia --startup-file=no --project=postprocess postprocess/$script --profile full runs/my_campaign runs/my_campaign/all_results_full.jld2")
+    println(io, "  ./bin/aggregate_results --profile summary_only runs/my_campaign")
+end
+
+function parse_args(args)
+    campaign_root = nothing
+    output_path = nothing
+    profile_name = "summary_only"
+    profile_file = joinpath(@__DIR__, "extract_profile.yaml")
+    pattern_str = raw"^results.*\.(h5|hdf5)$"
+    verbose = true
+    show_help = false
+
+    positional = String[]
+    i = 1
+    while i <= length(args)
+        a = args[i]
+        if a in ("-h", "--help")
+            show_help = true
+            i += 1
+        elseif a == "--profile"
+            i < length(args) || error("--profile requires a value")
+            profile_name = args[i + 1]
+            i += 2
+        elseif a == "--profile-file"
+            i < length(args) || error("--profile-file requires a value")
+            profile_file = args[i + 1]
+            i += 2
+        elseif a == "--pattern"
+            i < length(args) || error("--pattern requires a value")
+            pattern_str = args[i + 1]
+            i += 2
+        elseif a == "--quiet"
+            verbose = false
+            i += 1
+        elseif startswith(a, "--")
+            error("Unknown option: $a")
+        else
+            push!(positional, a)
+            i += 1
+        end
+    end
+
+    if !isempty(positional)
+        campaign_root = positional[1]
+    end
+    if length(positional) >= 2
+        output_path = positional[2]
+    end
+    if length(positional) > 2
+        error("Expected at most 2 positional arguments, got $(length(positional))")
+    end
+
+    return (
+        campaign_root=campaign_root,
+        output_path=output_path,
+        profile_name=profile_name,
+        profile_file=profile_file,
+        pattern_str=pattern_str,
+        verbose=verbose,
+        show_help=show_help
+    )
+end
+
+function load_profile(profile_file::AbstractString, profile_name::AbstractString)
+    isfile(profile_file) || error("Profile file not found: $profile_file")
+    raw = normalize_yaml(YAML.load_file(profile_file))
+    profiles = get(raw, "profiles", Dict{String,Any}())
+    profiles isa AbstractDict || error("Invalid profile file: missing 'profiles' dictionary")
+    haskey(profiles, profile_name) || error("Profile '$profile_name' not found in $profile_file")
+    profile = normalize_yaml(profiles[profile_name])
+    return profile, collect(keys(profiles))
+end
+
+function discover_results_files(campaign_root::AbstractString, pattern::Regex)
+    files = String[]
+    for (root, _, fns) in walkdir(campaign_root)
+        for fn in fns
+            occursin(pattern, fn) || continue
+            push!(files, joinpath(root, fn))
+        end
+    end
+    sort!(files)
+    return files
+end
+
+function derive_candidate_run_id(campaign_root::AbstractString, results_path::AbstractString, idx::Int)
+    run_dir = basename(dirname(results_path))
+    if occursin(r"^run_[0-9]+$", run_dir)
+        return run_dir
+    end
+    rel_dir = relpath(dirname(results_path), campaign_root)
+    base = splitext(basename(results_path))[1]
+    if rel_dir == "."
+        return isempty(base) ? "run_$(lpad(idx, 4, '0'))" : base
+    end
+    rel_clean = replace(rel_dir, r"[\\/]+" => "__")
+    if isempty(base)
+        return rel_clean
+    end
+    return rel_clean * "__" * base
+end
+
+function build_unique_run_ids(campaign_root::AbstractString, results_paths::Vector{String})
+    used = Dict{String,Int}()
+    ids = String[]
+    for (idx, path) in enumerate(results_paths)
+        base = derive_candidate_run_id(campaign_root, path, idx)
+        n = get(used, base, 0) + 1
+        used[base] = n
+        push!(ids, n == 1 ? base : "$(base)_$n")
+    end
+    return ids
+end
+
+function to_serializable(x)
+    if x isa AbstractDict
+        out = Dict{String,Any}()
+        for (k, v) in x
+            out[String(k)] = to_serializable(v)
+        end
+        return out
+    elseif x isa NamedTuple
+        out = Dict{String,Any}()
+        for (k, v) in pairs(x)
+            out[String(k)] = to_serializable(v)
+        end
+        return out
+    elseif x isa AbstractVector
+        if eltype(x) <: Number || eltype(x) <: AbstractString || eltype(x) <: Bool
+            return x
+        end
+        return [to_serializable(v) for v in x]
+    elseif x isa AbstractArray
+        if eltype(x) <: Number || eltype(x) <: Bool || eltype(x) <: AbstractString
+            return x
+        end
+        return map(to_serializable, x)
+    elseif x === nothing || x isa Number || x isa Bool || x isa AbstractString
+        return x
+    else
+        return string(x)
+    end
+end
+
+function aggregate_results(
+    campaign_root::AbstractString;
+    output_path::AbstractString,
+    profile::AbstractDict,
+    profile_name::AbstractString,
+    pattern::Regex=Regex(raw"^results.*\.(h5|hdf5)$"),
+    verbose::Bool=true
+)
+    campaign_root_abs = abspath(campaign_root)
+    isdir(campaign_root_abs) || error("Campaign root is not a directory: $campaign_root_abs")
+
+    results_files = discover_results_files(campaign_root_abs, pattern)
+    isempty(results_files) && error("No results files found under $campaign_root_abs matching regex: $(pattern.pattern)")
+
+    run_ids = build_unique_run_ids(campaign_root_abs, results_files)
+    runs = Dict{String,Any}()
+    summary_rows = Vector{Dict{String,Any}}()
+    schema_counts = Dict{String,Int}()
+    n_success = 0
+    n_error = 0
+
+    for (idx, (run_id, path)) in enumerate(zip(run_ids, results_files))
+        verbose && println("[$idx/$(length(results_files))] Parsing $(abspath(path))")
+        abs_path = abspath(path)
+        run_dir = dirname(abs_path)
+        try
+            parsed = parse_results_file(abs_path; profile=profile)
+            schema = get(parsed, "schema", Dict{String,Any}())
+            schema_id = get(schema, "results_schema_id", "unknown")
+            schema_version = get(schema, "results_schema_version", "unknown")
+            schema_key = "$(schema_id)@$(schema_version)"
+            schema_counts[schema_key] = get(schema_counts, schema_key, 0) + 1
+
+            run_record = Dict{String,Any}(
+                "run_id" => run_id,
+                "results_path" => abs_path,
+                "run_dir" => run_dir,
+                "schema" => schema,
+                "meta" => get(parsed, "meta", Dict{String,Any}()),
+                "summary" => get(parsed, "summary", Dict{String,Any}()),
+                "observables" => get(parsed, "observables", Dict{String,Any}()),
+                "issues" => get(parsed, "issues", String[]),
+                "status" => "ok"
+            )
+            runs[run_id] = run_record
+
+            row = Dict{String,Any}()
+            merge!(row, run_record["summary"])
+            row["run_id"] = run_id
+            row["results_path"] = abs_path
+            row["run_dir"] = run_dir
+            row["status"] = "ok"
+            row["issues"] = run_record["issues"]
+            push!(summary_rows, row)
+            n_success += 1
+        catch err
+            err_msg = sprint(showerror, err)
+            row = Dict{String,Any}(
+                "run_id" => run_id,
+                "results_path" => abs_path,
+                "run_dir" => run_dir,
+                "status" => "error",
+                "error" => err_msg,
+                "issues" => ["parser_exception"]
+            )
+            push!(summary_rows, row)
+            runs[run_id] = Dict{String,Any}(
+                "run_id" => run_id,
+                "results_path" => abs_path,
+                "run_dir" => run_dir,
+                "status" => "error",
+                "error" => err_msg
+            )
+            n_error += 1
+        end
+    end
+
+    sort!(summary_rows, by=r -> String(get(r, "run_id", "")))
+
+    manifest = Dict{String,Any}(
+        "created_at" => string(Dates.now()),
+        "aggregator_name" => "postprocess.aggregate_results",
+        "aggregator_version" => "0.1.0",
+        "campaign_root" => campaign_root_abs,
+        "output_path" => abspath(output_path),
+        "profile_name" => profile_name,
+        "profile" => profile,
+        "results_file_pattern" => pattern.pattern,
+        "n_discovered" => length(results_files),
+        "n_success" => n_success,
+        "n_error" => n_error,
+        "schema_counts" => schema_counts,
+        "results_files" => abspath.(results_files)
+    )
+
+    mkpath(dirname(abspath(output_path)))
+    JLD2.jldopen(output_path, "w") do f
+        f["manifest"] = to_serializable(manifest)
+        f["summary"] = to_serializable(summary_rows)
+        f["runs"] = to_serializable(runs)
+    end
+
+    return (
+        output_path=abspath(output_path),
+        n_discovered=length(results_files),
+        n_success=n_success,
+        n_error=n_error,
+        schema_counts=schema_counts
+    )
+end
+
+function main()
+    opts = parse_args(ARGS)
+    if opts.show_help
+        print_help()
+        return nothing
+    end
+    opts.campaign_root === nothing && error("campaign_root is required. Use --help for usage.")
+
+    pattern = Regex(opts.pattern_str)
+    profile, available_profiles = load_profile(opts.profile_file, opts.profile_name)
+    output_path = opts.output_path === nothing ?
+                  joinpath(abspath(opts.campaign_root), "all_results.jld2") :
+                  opts.output_path
+
+    if opts.verbose
+        println("Campaign root      : $(abspath(opts.campaign_root))")
+        println("Output JLD2        : $(abspath(output_path))")
+        println("Profile            : $(opts.profile_name)")
+        println("Profile file       : $(abspath(opts.profile_file))")
+        println("Available profiles : $(join(sort(String.(available_profiles)), ", "))")
+        println("Pattern            : $(opts.pattern_str)")
+    end
+
+    result = aggregate_results(
+        opts.campaign_root;
+        output_path=output_path,
+        profile=profile,
+        profile_name=opts.profile_name,
+        pattern=pattern,
+        verbose=opts.verbose
+    )
+
+    println("Wrote aggregate: $(result.output_path)")
+    println("Runs discovered: $(result.n_discovered), parsed: $(result.n_success), errors: $(result.n_error)")
+    return nothing
+end
+
+if abspath(PROGRAM_FILE) == @__FILE__
+    main()
+end
