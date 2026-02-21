@@ -12,6 +12,43 @@ using YAML
 
 include(joinpath(@__DIR__, "parsers.jl"))
 
+const PREFERRED_SUMMARY_COLUMN_ORDER = [
+    "run_id",
+    "cfg_meta_run_name",
+    "status",
+    "schema_id",
+    "schema_version",
+    "cfg_lattice_L",
+    "cfg_lattice_periodic",
+    "cfg_initial_Na_total",
+    "cfg_initial_Nb_total",
+    "cfg_initial_impurity_distribution",
+    "cfg_initial_seed",
+    "cfg_local_nmax_a",
+    "cfg_local_nmax_b",
+    "cfg_t_a",
+    "cfg_t_b",
+    "cfg_U_a",
+    "cfg_U_b",
+    "cfg_U_ab",
+    "cfg_mu_a",
+    "cfg_mu_b",
+    "cfg_dmrg_nsweeps",
+    "cfg_dmrg_maxdim_max",
+    "E0",
+    "Na",
+    "Nb",
+    "na_mean",
+    "nb_mean",
+    "L_from_density",
+    "has_observables",
+    "has_density_density",
+    "has_structure_factor",
+    "has_triple_corr",
+    "has_sampled_configs",
+    "issues"
+]
+
 function print_help(io::IO=stdout)
     script = basename(@__FILE__)
     println(io, "Usage:")
@@ -183,7 +220,9 @@ end
         return missing
     elseif x isa Bool
         return x
-    elseif x isa Real
+    elseif x isa Integer
+        return Int64(x)
+    elseif x isa AbstractFloat
         return Float64(x)
     elseif x isa AbstractString
         return String(x)
@@ -203,9 +242,11 @@ function typed_summary_column(values::Vector{Any})
     end
 
     has_bool = any(v -> v isa Bool, nonmissing)
+    has_int = any(v -> (v isa Integer) && !(v isa Bool), nonmissing)
     has_float = any(v -> v isa Float64, nonmissing)
     has_string = any(v -> v isa String, nonmissing)
-    kind_count = count(identity, (has_bool, has_float, has_string))
+    has_numeric = has_int || has_float
+    kind_count = count(identity, (has_bool, has_numeric, has_string))
 
     if kind_count == 1 && has_bool
         col = Vector{Union{Missing,Bool}}(undef, length(values))
@@ -214,7 +255,21 @@ function typed_summary_column(values::Vector{Any})
             col[i] = (v === missing) ? missing : Bool(v)
         end
         return col
+    elseif kind_count == 1 && has_int
+        col = Vector{Union{Missing,Int64}}(undef, length(values))
+        for i in eachindex(values)
+            v = values[i]
+            col[i] = (v === missing) ? missing : Int64(v)
+        end
+        return col
     elseif kind_count == 1 && has_float
+        col = Vector{Union{Missing,Float64}}(undef, length(values))
+        for i in eachindex(values)
+            v = values[i]
+            col[i] = (v === missing) ? missing : Float64(v)
+        end
+        return col
+    elseif kind_count == 1 && has_numeric
         col = Vector{Union{Missing,Float64}}(undef, length(values))
         for i in eachindex(values)
             v = values[i]
@@ -237,19 +292,28 @@ function summary_rows_to_dataframe(summary_rows::Vector{Dict{String,Any}})
     for row in summary_rows
         union!(keyset, keys(row))
     end
-    keys_sorted = sort!(collect(keyset))
-    n = length(summary_rows)
-    cols = Dict{Symbol,Any}()
 
-    for key in keys_sorted
+    ordered_keys = String[]
+    for key in PREFERRED_SUMMARY_COLUMN_ORDER
+        if key in keyset
+            push!(ordered_keys, key)
+            delete!(keyset, key)
+        end
+    end
+    append!(ordered_keys, sort!(collect(keyset)))
+
+    n = length(summary_rows)
+    df = DataFrame()
+
+    for key in ordered_keys
         raw = Vector{Any}(undef, n)
         for i in 1:n
             raw[i] = normalize_summary_cell(get(summary_rows[i], key, missing))
         end
-        cols[Symbol(key)] = typed_summary_column(raw)
+        df[!, Symbol(key)] = typed_summary_column(raw)
     end
 
-    return DataFrame(cols)
+    return df
 end
 
 function summary_table_paths(output_path::AbstractString)
@@ -311,8 +375,6 @@ function aggregate_results(
             row = Dict{String,Any}()
             merge!(row, run_record["summary"])
             row["run_id"] = run_id
-            row["results_path"] = abs_path
-            row["run_dir"] = run_dir
             row["status"] = "ok"
             row["issues"] = run_record["issues"]
             push!(summary_rows, row)
@@ -321,8 +383,6 @@ function aggregate_results(
             err_msg = sprint(showerror, err)
             row = Dict{String,Any}(
                 "run_id" => run_id,
-                "results_path" => abs_path,
-                "run_dir" => run_dir,
                 "status" => "error",
                 "error" => err_msg,
                 "issues" => ["parser_exception"]

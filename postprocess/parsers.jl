@@ -86,6 +86,44 @@ end
     return nothing
 end
 
+function maxdim_max_value(x)
+    if x === nothing
+        return nothing
+    elseif x isa Number
+        return x
+    elseif x isa AbstractVector
+        vals = Number[]
+        for v in x
+            mv = maxdim_max_value(v)
+            if mv isa Number
+                push!(vals, mv)
+            end
+        end
+        if isempty(vals)
+            return nothing
+        end
+        has_float = any(v -> v isa AbstractFloat, vals)
+        if has_float
+            return maximum(Float64.(vals))
+        end
+        return maximum(Int64.(vals))
+    elseif x isa AbstractDict
+        if haskey(x, "max")
+            return maxdim_max_value(x["max"])
+        elseif haskey(x, :max)
+            return maxdim_max_value(x[:max])
+        elseif haskey(x, "values")
+            return maxdim_max_value(x["values"])
+        elseif haskey(x, :values)
+            return maxdim_max_value(x[:values])
+        else
+            return nothing
+        end
+    else
+        return nothing
+    end
+end
+
 function extract_key_params(meta::AbstractDict)
     params_yaml = get(meta, "params_yaml", nothing)
     params_yaml isa AbstractString || return Dict{String,Any}()
@@ -101,6 +139,17 @@ function extract_key_params(meta::AbstractDict)
     out["cfg_lattice_periodic"] = nested_get(cfg, ["lattice", "periodic"], nothing)
     out["cfg_initial_Na_total"] = nested_get(cfg, ["initial_state", "Na_total"], nothing)
     out["cfg_initial_Nb_total"] = nested_get(cfg, ["initial_state", "Nb_total"], nothing)
+    impurity_distribution = nested_get(cfg, ["initial_state", "impurity_distribution"], nothing)
+    out["cfg_initial_impurity_distribution"] = impurity_distribution
+    out["cfg_initial_seed"] = begin
+        if impurity_distribution === nothing
+            nothing
+        elseif lowercase(string(impurity_distribution)) == "random"
+            nested_get(cfg, ["initial_state", "seed"], nothing)
+        else
+            nothing
+        end
+    end
     out["cfg_local_nmax_a"] = nested_get(cfg, ["local_hilbert", "nmax_a"], nothing)
     out["cfg_local_nmax_b"] = nested_get(cfg, ["local_hilbert", "nmax_b"], nothing)
     out["cfg_t_a"] = nested_get(cfg, ["hamiltonian", "t_a"], nothing)
@@ -111,6 +160,7 @@ function extract_key_params(meta::AbstractDict)
     out["cfg_mu_a"] = nested_get(cfg, ["hamiltonian", "mu_a"], nothing)
     out["cfg_mu_b"] = nested_get(cfg, ["hamiltonian", "mu_b"], nothing)
     out["cfg_dmrg_nsweeps"] = nested_get(cfg, ["dmrg", "nsweeps"], nothing)
+    out["cfg_dmrg_maxdim_max"] = maxdim_max_value(nested_get(cfg, ["dmrg", "maxdim"], nothing))
     out["cfg_meta_run_name"] = nested_get(cfg, ["meta", "run_name"], nothing)
     return out
 end
