@@ -2,6 +2,9 @@
 # License: MIT
 # Copyright (c) 2026 Tanul Gupta
 
+using Arrow
+using CSV
+using DataFrames
 using Dates
 using HDF5
 using JLD2
@@ -20,6 +23,11 @@ function print_help(io::IO=stdout)
     println(io, "  --pattern <regex>      Regex for result files within campaign_root (default: ^results.*\\\\.(h5|hdf5)\$)")
     println(io, "  --quiet                Reduce progress output")
     println(io, "  -h, --help             Show this help")
+    println(io, "")
+    println(io, "Outputs:")
+    println(io, "  <output_jld2>                  Aggregated nested data")
+    println(io, "  <output_basename>_summary.arrow  Tabular summary export")
+    println(io, "  <output_basename>_summary.csv    Tabular summary export")
     println(io, "")
     println(io, "Examples:")
     println(io, "  julia --startup-file=no --project=postprocess postprocess/$script runs/my_campaign")
@@ -168,6 +176,92 @@ function to_serializable(x)
     end
 end
 
+@inline function normalize_summary_cell(x)
+    if x === nothing
+        return missing
+    elseif x isa Missing
+        return missing
+    elseif x isa Bool
+        return x
+    elseif x isa Real
+        return Float64(x)
+    elseif x isa AbstractString
+        return String(x)
+    elseif x isa AbstractVector
+        return join(string.(x), "; ")
+    elseif x isa AbstractDict || x isa NamedTuple
+        return sprint(show, x)
+    else
+        return string(x)
+    end
+end
+
+function typed_summary_column(values::Vector{Any})
+    nonmissing = [v for v in values if v !== missing]
+    if isempty(nonmissing)
+        return fill(missing, length(values))
+    end
+
+    has_bool = any(v -> v isa Bool, nonmissing)
+    has_float = any(v -> v isa Float64, nonmissing)
+    has_string = any(v -> v isa String, nonmissing)
+    kind_count = count(identity, (has_bool, has_float, has_string))
+
+    if kind_count == 1 && has_bool
+        col = Vector{Union{Missing,Bool}}(undef, length(values))
+        for i in eachindex(values)
+            v = values[i]
+            col[i] = (v === missing) ? missing : Bool(v)
+        end
+        return col
+    elseif kind_count == 1 && has_float
+        col = Vector{Union{Missing,Float64}}(undef, length(values))
+        for i in eachindex(values)
+            v = values[i]
+            col[i] = (v === missing) ? missing : Float64(v)
+        end
+        return col
+    else
+        col = Vector{Union{Missing,String}}(undef, length(values))
+        for i in eachindex(values)
+            v = values[i]
+            col[i] = (v === missing) ? missing : string(v)
+        end
+        return col
+    end
+end
+
+function summary_rows_to_dataframe(summary_rows::Vector{Dict{String,Any}})
+    isempty(summary_rows) && return DataFrame()
+    keyset = Set{String}()
+    for row in summary_rows
+        union!(keyset, keys(row))
+    end
+    keys_sorted = sort!(collect(keyset))
+    n = length(summary_rows)
+    cols = Dict{Symbol,Any}()
+
+    for key in keys_sorted
+        raw = Vector{Any}(undef, n)
+        for i in 1:n
+            raw[i] = normalize_summary_cell(get(summary_rows[i], key, missing))
+        end
+        cols[Symbol(key)] = typed_summary_column(raw)
+    end
+
+    return DataFrame(cols)
+end
+
+function summary_table_paths(output_path::AbstractString)
+    out_abs = abspath(output_path)
+    out_dir = dirname(out_abs)
+    stem = splitext(basename(out_abs))[1]
+    return (
+        arrow_path=joinpath(out_dir, "$(stem)_summary.arrow"),
+        csv_path=joinpath(out_dir, "$(stem)_summary.csv")
+    )
+end
+
 function aggregate_results(
     campaign_root::AbstractString;
     output_path::AbstractString,
@@ -247,12 +341,19 @@ function aggregate_results(
 
     sort!(summary_rows, by=r -> String(get(r, "run_id", "")))
 
+    table_paths = summary_table_paths(output_path)
+    summary_df = summary_rows_to_dataframe(summary_rows)
+    Arrow.write(table_paths.arrow_path, summary_df)
+    CSV.write(table_paths.csv_path, summary_df)
+
     manifest = Dict{String,Any}(
         "created_at" => string(Dates.now()),
         "aggregator_name" => "postprocess.aggregate_results",
         "aggregator_version" => "0.1.0",
         "campaign_root" => campaign_root_abs,
         "output_path" => abspath(output_path),
+        "summary_arrow_path" => table_paths.arrow_path,
+        "summary_csv_path" => table_paths.csv_path,
         "profile_name" => profile_name,
         "profile" => profile,
         "results_file_pattern" => pattern.pattern,
@@ -272,6 +373,8 @@ function aggregate_results(
 
     return (
         output_path=abspath(output_path),
+        summary_arrow_path=table_paths.arrow_path,
+        summary_csv_path=table_paths.csv_path,
         n_discovered=length(results_files),
         n_success=n_success,
         n_error=n_error,
@@ -312,6 +415,8 @@ function main()
     )
 
     println("Wrote aggregate: $(result.output_path)")
+    println("Wrote summary arrow: $(result.summary_arrow_path)")
+    println("Wrote summary csv: $(result.summary_csv_path)")
     println("Runs discovered: $(result.n_discovered), parsed: $(result.n_success), errors: $(result.n_error)")
     return nothing
 end

@@ -6,7 +6,6 @@ profiles:
     include_structure_factor: false
     include_triple_corr: false
     include_sampled_configs: false
-    include_binding_energy: true
 
   full:
     include_arrays: true
@@ -15,4 +14,3 @@ profiles:
     include_structure_factor: true
     include_triple_corr: true
     include_sampled_configs: false
-    include_binding_energy: true

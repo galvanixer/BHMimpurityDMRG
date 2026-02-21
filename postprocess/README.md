@@ -20,10 +20,12 @@ Or with the launcher:
 ./bin/aggregate_results runs/<campaign_name>
 ```
 
-Default output path:
+Default outputs:
 
 ```text
 runs/<campaign_name>/all_results.jld2
+runs/<campaign_name>/all_results_summary.arrow
+runs/<campaign_name>/all_results_summary.csv
 ```
 
 ### Choose extraction profile
@@ -40,6 +42,10 @@ The JLD2 file contains:
 - `manifest`: aggregation config, discovered files, schema counts.
 - `summary`: one dictionary row per run (good for quick filtering/plot prep).
 - `runs`: per-run detailed records (`meta`, selected `observables`, `issues`).
+
+Tabular exports:
+- `*_summary.arrow`: typed columnar table for fast filtering/analysis.
+- `*_summary.csv`: plain-text table export.
 
 ## Schema contract
 Core writers stamp:

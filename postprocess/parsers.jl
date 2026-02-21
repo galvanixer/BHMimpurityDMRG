@@ -151,19 +151,7 @@ function summarize_observables(g_obs)
     summary["has_density_density"] = haskey(g_obs, "density_density")
     summary["has_structure_factor"] = haskey(g_obs, "structure_factor")
     summary["has_triple_corr"] = haskey(g_obs, "triple_corr")
-    summary["has_binding_energy"] = haskey(g_obs, "binding_energy")
     summary["has_sampled_configs"] = haskey(g_obs, "sampled_configs")
-
-    if haskey(g_obs, "binding_energy")
-        g_be = g_obs["binding_energy"]
-        summary["Ebind2"] = read_if_exists(g_be, "Ebind2"; default=nothing)
-        summary["Ebind3111"] = read_if_exists(g_be, "Ebind3111"; default=nothing)
-        summary["Ebind321"] = read_if_exists(g_be, "Ebind321"; default=nothing)
-    else
-        summary["Ebind2"] = nothing
-        summary["Ebind3111"] = nothing
-        summary["Ebind321"] = nothing
-    end
 
     return summary
 end
@@ -177,9 +165,6 @@ function collect_observables_payload(g_obs, profile::AbstractDict)
     end
     if haskey(g_obs, "totals")
         payload["totals"] = read_group_recursive(g_obs["totals"])
-    end
-    if haskey(g_obs, "binding_energy") && profile_bool(profile, "include_binding_energy", true)
-        payload["binding_energy"] = read_group_recursive(g_obs["binding_energy"])
     end
 
     include_arrays = profile_bool(profile, "include_arrays", false)
