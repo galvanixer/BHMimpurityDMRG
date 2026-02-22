@@ -13,6 +13,7 @@ using YAML
 include(joinpath(@__DIR__, "parsers.jl"))
 
 const PREFERRED_SUMMARY_COLUMN_ORDER = [
+    "campaign_name",
     "run_id",
     "cfg_meta_run_name",
     "status",
@@ -62,13 +63,13 @@ function print_help(io::IO=stdout)
     println(io, "  -h, --help             Show this help")
     println(io, "")
     println(io, "Outputs:")
-    println(io, "  <output_jld2>                  Aggregated nested data")
-    println(io, "  <output_basename>_summary.arrow  Tabular summary export")
-    println(io, "  <output_basename>_summary.csv    Tabular summary export")
+    println(io, "  <output_jld2>                    Aggregated nested data")
+    println(io, "  Summary_<campaign_name>.arrow    Tabular summary export")
+    println(io, "  Summary_<campaign_name>.csv      Tabular summary export")
     println(io, "")
     println(io, "Examples:")
     println(io, "  julia --startup-file=no --project=postprocess postprocess/$script runs/my_campaign")
-    println(io, "  julia --startup-file=no --project=postprocess postprocess/$script --profile full runs/my_campaign runs/my_campaign/all_results_full.jld2")
+    println(io, "  julia --startup-file=no --project=postprocess postprocess/$script --profile full runs/my_campaign runs/my_campaign/Results_my_campaign_full.jld2")
     println(io, "  ./bin/aggregate_results --profile summary_only runs/my_campaign")
 end
 
@@ -316,13 +317,11 @@ function summary_rows_to_dataframe(summary_rows::Vector{Dict{String,Any}})
     return df
 end
 
-function summary_table_paths(output_path::AbstractString)
-    out_abs = abspath(output_path)
-    out_dir = dirname(out_abs)
-    stem = splitext(basename(out_abs))[1]
+function summary_table_paths(output_path::AbstractString, campaign_name::AbstractString)
+    out_dir = dirname(abspath(output_path))
     return (
-        arrow_path=joinpath(out_dir, "$(stem)_summary.arrow"),
-        csv_path=joinpath(out_dir, "$(stem)_summary.csv")
+        arrow_path=joinpath(out_dir, "Summary_$(campaign_name).arrow"),
+        csv_path=joinpath(out_dir, "Summary_$(campaign_name).csv")
     )
 end
 
@@ -336,6 +335,7 @@ function aggregate_results(
 )
     campaign_root_abs = abspath(campaign_root)
     isdir(campaign_root_abs) || error("Campaign root is not a directory: $campaign_root_abs")
+    campaign_name = basename(normpath(campaign_root_abs))
 
     results_files = discover_results_files(campaign_root_abs, pattern)
     isempty(results_files) && error("No results files found under $campaign_root_abs matching regex: $(pattern.pattern)")
@@ -374,6 +374,7 @@ function aggregate_results(
 
             row = Dict{String,Any}()
             merge!(row, run_record["summary"])
+            row["campaign_name"] = campaign_name
             row["run_id"] = run_id
             row["status"] = "ok"
             row["issues"] = run_record["issues"]
@@ -382,6 +383,7 @@ function aggregate_results(
         catch err
             err_msg = sprint(showerror, err)
             row = Dict{String,Any}(
+                "campaign_name" => campaign_name,
                 "run_id" => run_id,
                 "status" => "error",
                 "error" => err_msg,
@@ -401,7 +403,7 @@ function aggregate_results(
 
     sort!(summary_rows, by=r -> String(get(r, "run_id", "")))
 
-    table_paths = summary_table_paths(output_path)
+    table_paths = summary_table_paths(output_path, campaign_name)
     summary_df = summary_rows_to_dataframe(summary_rows)
     Arrow.write(table_paths.arrow_path, summary_df)
     CSV.write(table_paths.csv_path, summary_df)
@@ -412,6 +414,7 @@ function aggregate_results(
         "aggregator_version" => "0.1.0",
         "campaign_root" => campaign_root_abs,
         "output_path" => abspath(output_path),
+        "campaign_name" => campaign_name,
         "summary_arrow_path" => table_paths.arrow_path,
         "summary_csv_path" => table_paths.csv_path,
         "profile_name" => profile_name,
@@ -452,13 +455,16 @@ function main()
 
     pattern = Regex(opts.pattern_str)
     profile, available_profiles = load_profile(opts.profile_file, opts.profile_name)
+    campaign_root_abs = abspath(opts.campaign_root)
+    campaign_name = basename(normpath(campaign_root_abs))
     output_path = opts.output_path === nothing ?
-                  joinpath(abspath(opts.campaign_root), "all_results.jld2") :
+                  joinpath(campaign_root_abs, "Results_$(campaign_name).jld2") :
                   opts.output_path
 
     if opts.verbose
-        println("Campaign root      : $(abspath(opts.campaign_root))")
-        println("Output JLD2        : $(abspath(output_path))")
+        println("Campaign root      : $(campaign_root_abs)")
+        println("Campaign name      : $(campaign_name)")
+        println("Output JLD         : $(abspath(output_path))")
         println("Profile            : $(opts.profile_name)")
         println("Profile file       : $(abspath(opts.profile_file))")
         println("Available profiles : $(join(sort(String.(available_profiles)), ", "))")

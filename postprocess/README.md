@@ -23,16 +23,16 @@ Or with the launcher:
 Default outputs:
 
 ```text
-runs/<campaign_name>/all_results.jld2
-runs/<campaign_name>/all_results_summary.arrow
-runs/<campaign_name>/all_results_summary.csv
+runs/<campaign_name>/Results_<campaign_name>.jld2
+runs/<campaign_name>/Summary_<campaign_name>.arrow
+runs/<campaign_name>/Summary_<campaign_name>.csv
 ```
 
 ### Choose extraction profile
 
 ```bash
 ./bin/aggregate_results --profile summary_only runs/<campaign_name>
-./bin/aggregate_results --profile full runs/<campaign_name> runs/<campaign_name>/all_results_full.jld2
+./bin/aggregate_results --profile full runs/<campaign_name> runs/<campaign_name>/Results_<campaign_name>_full.jld2
 ```
 
 Profiles are defined in `postprocess/extract_profile.yaml`.
