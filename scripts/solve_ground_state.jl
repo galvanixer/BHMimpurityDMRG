@@ -52,6 +52,7 @@ function main()
 
         na = nothing
         nb = nothing
+        dmrg_diag = nothing
         if isfile(state_path)
             st = load_state(state_path)
             if current_hash !== nothing && st.params_sha256 !== nothing &&
@@ -64,9 +65,10 @@ function main()
                 @info "Using cached state (hash matched)" state_path=state_path
             else
                 @info "Cached state missing/mismatched hash; running DMRG" state_path=state_path
-                energy, psi, sites, _ = run_dmrg_to_log(
+                energy, psi, sites, _, dmrg_diag = run_dmrg_to_log(
                     logcfg.log_path;
                     checkpoint_params_path=params_path,
+                    return_diagnostics=true,
                     dmrg_cfg...
                 )
                 if save_state_flag
@@ -88,9 +90,10 @@ function main()
             end
         else
             @info "No cached state found; running DMRG" state_path=state_path
-            energy, psi, sites, _ = run_dmrg_to_log(
+            energy, psi, sites, _, dmrg_diag = run_dmrg_to_log(
                 logcfg.log_path;
                 checkpoint_params_path=params_path,
+                return_diagnostics=true,
                 dmrg_cfg...
             )
             if save_state_flag
@@ -140,6 +143,9 @@ function main()
                 write_or_replace(g_meta, "observables_sha256", bytes2hex(SHA.sha256(read(observables_path, String))))
             end
             write_observables_hdf5!(f, obs)
+            if dmrg_diag !== nothing
+                write_dmrg_diagnostics!(f, dmrg_diag)
+            end
         end
         @info "Wrote results" results_path=results_path
     end

@@ -8,9 +8,20 @@
 
 using LinearAlgebra
 
+struct DMRGSweepTraceRow
+    energy::Float64
+    delta_energy::Float64
+    max_truncerr::Float64
+    maxdim_used::Int64
+    walltime_sec::Float64
+end
+
 mutable struct EarlyStopDMRGObserver <: ITensorMPS.AbstractObserver
     energies::Vector{Float64}
     truncerrs::Vector{Float64}
+    maxdim_used::Vector{Int64}
+    walltime_sec::Vector{Float64}
+    checkpoint_sweeps::Vector{Int64}
     energy_tol::Float64
     trunc_tol::Float64
     min_sweeps::Int
@@ -25,6 +36,9 @@ mutable struct EarlyStopDMRGObserver <: ITensorMPS.AbstractObserver
     sweep_offset::Int
     init_na::Union{Nothing,Vector{Float64}}
     init_nb::Union{Nothing,Vector{Float64}}
+    early_stop_triggered::Bool
+    run_start_time_ns::Int64
+    last_sweep_time_ns::Int64
 end
 
 function EarlyStopDMRGObserver(;
@@ -44,9 +58,13 @@ function EarlyStopDMRGObserver(;
 )
     init_na_v = init_na === nothing ? nothing : Float64.(collect(init_na))
     init_nb_v = init_nb === nothing ? nothing : Float64.(collect(init_nb))
+    t0 = Int64(time_ns())
     return EarlyStopDMRGObserver(
         Float64[],
         Float64[],
+        Int64[],
+        Float64[],
+        Int64[],
         Float64(energy_tol),
         Float64(trunc_tol),
         min_sweeps,
@@ -60,7 +78,10 @@ function EarlyStopDMRGObserver(;
         max(1, checkpoint_density_every),
         max(0, sweep_offset),
         init_na_v,
-        init_nb_v
+        init_nb_v,
+        false,
+        t0,
+        t0
     )
 end
 
@@ -83,10 +104,10 @@ function maybe_checkpoint!(
     outputlevel::Integer=0
 )
     if obs.checkpoint_every <= 0 || obs.checkpoint_path === nothing
-        return nothing
+        return false
     end
     if sweep % obs.checkpoint_every != 0
-        return nothing
+        return false
     end
 
     path = obs.checkpoint_path
@@ -117,6 +138,7 @@ function maybe_checkpoint!(
         if outputlevel > 0
             println("Wrote DMRG checkpoint at sweep $sweep to $path (densities_saved=$save_densities)")
         end
+        return true
     catch err
         if outputlevel > 0
             println("Warning: failed to write DMRG checkpoint at sweep $sweep: $err")
@@ -124,8 +146,90 @@ function maybe_checkpoint!(
         if isfile(tmp_path)
             rm(tmp_path; force=true)
         end
+        return false
     end
-    return nothing
+end
+
+@inline function max_bond_dim(psi::MPS)
+    N = length(psi)
+    N <= 1 && return 1
+    md = 1
+    for b in 1:(N - 1)
+        li = linkind(psi, b)
+        if li !== nothing
+            md = max(md, dim(li))
+        end
+    end
+    return md
+end
+
+function build_dmrg_diagnostics(
+    obs::EarlyStopDMRGObserver;
+    resume_mode::Symbol,
+    checkpoint_sweep_start::Int
+)
+    n = length(obs.energies)
+    delta_energy = fill(NaN, n)
+    for i in 2:n
+        delta_energy[i] = abs(obs.energies[i] - obs.energies[i - 1])
+    end
+
+    trunc = length(obs.truncerrs) == n ? obs.truncerrs : begin
+        out = fill(NaN, n)
+        m = min(length(obs.truncerrs), n)
+        for i in 1:m
+            out[i] = obs.truncerrs[i]
+        end
+        out
+    end
+    maxdim_used = length(obs.maxdim_used) == n ? obs.maxdim_used : begin
+        out = fill(Int64(0), n)
+        m = min(length(obs.maxdim_used), n)
+        for i in 1:m
+            out[i] = obs.maxdim_used[i]
+        end
+        out
+    end
+    walltime = length(obs.walltime_sec) == n ? obs.walltime_sec : begin
+        out = fill(NaN, n)
+        m = min(length(obs.walltime_sec), n)
+        for i in 1:m
+            out[i] = obs.walltime_sec[i]
+        end
+        out
+    end
+
+    rows = Vector{DMRGSweepTraceRow}(undef, n)
+    for i in 1:n
+        rows[i] = DMRGSweepTraceRow(
+            obs.energies[i],
+            delta_energy[i],
+            trunc[i],
+            Int64(maxdim_used[i]),
+            walltime[i]
+        )
+    end
+
+    converged = false
+    if n >= max(2, obs.min_sweeps)
+        energy_ok = obs.energy_tol <= 0.0 || delta_energy[end] < obs.energy_tol
+        trunc_ok = obs.trunc_tol <= 0.0 || (!isempty(trunc) && isfinite(trunc[end]) && trunc[end] < obs.trunc_tol)
+        converged = energy_ok && trunc_ok
+    end
+
+    return (
+        sweep_trace=rows,
+        checkpoint_sweeps=Int64.(obs.checkpoint_sweeps),
+        sweeps_completed=n,
+        converged=converged,
+        early_stop_triggered=obs.early_stop_triggered,
+        energy_tol=obs.energy_tol,
+        trunc_tol=obs.trunc_tol,
+        patience=obs.patience,
+        min_sweeps=obs.min_sweeps,
+        resume_mode=String(resume_mode),
+        checkpoint_sweep_start=Int(checkpoint_sweep_start)
+    )
 end
 
 function ITensorMPS.measure!(obs::EarlyStopDMRGObserver; kwargs...)
@@ -156,8 +260,15 @@ function ITensorMPS.checkdone!(obs::EarlyStopDMRGObserver; outputlevel=0, energy
     sw = sw_local + obs.sweep_offset
     psi = haskey(kwargs, :psi) ? kwargs[:psi] : nothing
     if psi !== nothing
-        maybe_checkpoint!(obs; psi=psi, energy=energy, sweep=sw, outputlevel=outputlevel)
+        checkpoint_written = maybe_checkpoint!(obs; psi=psi, energy=energy, sweep=sw, outputlevel=outputlevel)
+        checkpoint_written && push!(obs.checkpoint_sweeps, Int64(sw))
+        push!(obs.maxdim_used, Int64(max_bond_dim(psi)))
+    else
+        push!(obs.maxdim_used, Int64(0))
     end
+    now_ns = Int64(time_ns())
+    push!(obs.walltime_sec, (now_ns - obs.last_sweep_time_ns) / 1e9)
+    obs.last_sweep_time_ns = now_ns
 
     energy_active = obs.energy_tol > 0.0
     trunc_active = obs.trunc_tol > 0.0
@@ -182,6 +293,7 @@ function ITensorMPS.checkdone!(obs::EarlyStopDMRGObserver; outputlevel=0, energy
     end
 
     if obs.streak >= obs.patience
+        obs.early_stop_triggered = true
         if outputlevel > 0
             println(
                 "Early stopping DMRG at local sweep $sw_local (global sweep $sw): " *
@@ -495,6 +607,7 @@ function run_dmrg(; L=12,
     checkpoint_require_hash=true,
     checkpoint_save_densities=false,
     checkpoint_density_every=1,
+    return_diagnostics=false,
     outputlevel=1,
     saveresults=false, savepath="results.h5", kwargs...)
 
@@ -573,6 +686,22 @@ function run_dmrg(; L=12,
             if energy === nothing
                 energy = real(inner(psi0, Apply(H, psi0)))
             end
+            if parse_bool(return_diagnostics)
+                diag = (
+                    sweep_trace=DMRGSweepTraceRow[],
+                    checkpoint_sweeps=Int64[],
+                    sweeps_completed=0,
+                    converged=false,
+                    early_stop_triggered=false,
+                    energy_tol=Float64(energy_tol),
+                    trunc_tol=Float64(trunc_tol),
+                    patience=Int(patience),
+                    min_sweeps=Int(min_sweeps),
+                    resume_mode=String(resume_mode_sym),
+                    checkpoint_sweep_start=Int(checkpoint_sweep)
+                )
+                return energy, psi0, sites, H, diag
+            end
             return energy, psi0, sites, H
         end
         maxdim_schedule = maxdim_schedule[(checkpoint_sweep + 1):end]
@@ -611,5 +740,13 @@ function run_dmrg(; L=12,
     )
 
     energy, psi = dmrg(H, psi0, sweeps; outputlevel=outputlevel, observer=observer)
+    if parse_bool(return_diagnostics)
+        diag = build_dmrg_diagnostics(
+            observer;
+            resume_mode=resume_mode_sym,
+            checkpoint_sweep_start=checkpoint_sweep
+        )
+        return energy, psi, sites, H, diag
+    end
     return energy, psi, sites, H
 end

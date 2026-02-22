@@ -90,6 +90,43 @@ function write_results_schema!(
 end
 
 """
+    write_dmrg_diagnostics!(f, diag)
+
+Write DMRG diagnostics to `/diagnostics/dmrg` in an open HDF5 file `f`.
+The per-sweep trace is stored as a single compound dataset `sweep_trace`.
+"""
+function write_dmrg_diagnostics!(f, diag)
+    g_diag = ensure_group(f, "diagnostics")
+    if haskey(g_diag, "dmrg")
+        HDF5.delete_object(g_diag, "dmrg")
+    end
+    g_dmrg = HDF5.create_group(g_diag, "dmrg")
+
+    sweep_trace = hasproperty(diag, :sweep_trace) ? diag.sweep_trace : DMRGSweepTraceRow[]
+    sweep_trace_v = if sweep_trace isa AbstractVector{DMRGSweepTraceRow}
+        collect(sweep_trace)
+    elseif sweep_trace isa AbstractVector
+        DMRGSweepTraceRow[]
+    else
+        DMRGSweepTraceRow[]
+    end
+    write_or_replace(g_dmrg, "sweep_trace", sweep_trace_v)
+
+    checkpoint_sweeps = hasproperty(diag, :checkpoint_sweeps) ? Int64.(collect(diag.checkpoint_sweeps)) : Int64[]
+    write_or_replace(g_dmrg, "checkpoint_sweeps", checkpoint_sweeps)
+    write_or_replace(g_dmrg, "sweeps_completed", Int(hasproperty(diag, :sweeps_completed) ? diag.sweeps_completed : length(sweep_trace_v)))
+    write_or_replace(g_dmrg, "converged", Bool(hasproperty(diag, :converged) ? diag.converged : false))
+    write_or_replace(g_dmrg, "early_stop_triggered", Bool(hasproperty(diag, :early_stop_triggered) ? diag.early_stop_triggered : false))
+    write_or_replace(g_dmrg, "energy_tol", Float64(hasproperty(diag, :energy_tol) ? diag.energy_tol : 0.0))
+    write_or_replace(g_dmrg, "trunc_tol", Float64(hasproperty(diag, :trunc_tol) ? diag.trunc_tol : 0.0))
+    write_or_replace(g_dmrg, "patience", Int(hasproperty(diag, :patience) ? diag.patience : 1))
+    write_or_replace(g_dmrg, "min_sweeps", Int(hasproperty(diag, :min_sweeps) ? diag.min_sweeps : 2))
+    write_or_replace(g_dmrg, "resume_mode", String(hasproperty(diag, :resume_mode) ? diag.resume_mode : "unknown"))
+    write_or_replace(g_dmrg, "checkpoint_sweep_start", Int(hasproperty(diag, :checkpoint_sweep_start) ? diag.checkpoint_sweep_start : 0))
+    return nothing
+end
+
+"""
     save_state(path::AbstractString, psi::MPS; energy=nothing, sites=siteinds(psi),
                params_path=nothing, params_text=nothing, na=nothing, nb=nothing,
                init_na=nothing, init_nb=nothing, checkpoint_sweep=nothing)

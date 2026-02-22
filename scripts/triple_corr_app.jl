@@ -45,6 +45,7 @@ function main()
         t_state = time_ns()
         na = nothing
         nb = nothing
+        dmrg_diag = nothing
         if isfile(state_path)
             st = load_state(state_path)
             if current_hash !== nothing && st.params_sha256 !== nothing && st.params_sha256 == current_hash
@@ -56,7 +57,12 @@ function main()
                 @info "Loaded cached state" state_path = state_path
             else
                 @info "State hash mismatch; recomputing"
-                energy, psi, sites, H = run_dmrg(; checkpoint_params_path=params_path, dmrg_cfg...)
+                energy, psi, sites, H, dmrg_diag = run_dmrg(
+                    ;
+                    checkpoint_params_path=params_path,
+                    return_diagnostics=true,
+                    dmrg_cfg...
+                )
                 if save_state_flag
                     na, nb = measure_densities(psi, sites)
                     save_state(
@@ -74,7 +80,12 @@ function main()
             end
         else
             @info "No cached state; running DMRG"
-            energy, psi, sites, H = run_dmrg(; checkpoint_params_path=params_path, dmrg_cfg...)
+            energy, psi, sites, H, dmrg_diag = run_dmrg(
+                ;
+                checkpoint_params_path=params_path,
+                return_diagnostics=true,
+                dmrg_cfg...
+            )
             if save_state_flag
                 na, nb = measure_densities(psi, sites)
                 save_state(
@@ -125,6 +136,9 @@ function main()
                 write_or_replace(g_meta, "observables_sha256", bytes2hex(SHA.sha256(read(observables_path, String))))
             end
             write_observables_hdf5!(f, obs)
+            if dmrg_diag !== nothing
+                write_dmrg_diagnostics!(f, dmrg_diag)
+            end
         end
         @info "Wrote results" results_path = results_path seconds = (time_ns() - t_write) / 1e9
         @info "Total time" seconds = (time_ns() - t_total) / 1e9
