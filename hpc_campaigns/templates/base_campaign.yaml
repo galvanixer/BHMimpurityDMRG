@@ -1,5 +1,5 @@
 campaign:
-  name: "example_deep_mi_scan"
+  name: "example_deep_mi_scan"  # base name; launcher creates <name>_<ddmmmyyyy>_vN
   output_root: "runs"  # relative path (resolved from this campaign file directory)
   # output_root_abs: "/absolute/path/to/runs"  # optional absolute path (takes priority over output_root)
   app_script: "scripts/solve_ground_state.jl"

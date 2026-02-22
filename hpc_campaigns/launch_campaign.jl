@@ -205,6 +205,30 @@ function maybe_expand_auto_meta_date!(cfg::AbstractDict; timestamp::AbstractStri
     return false
 end
 
+function ddmmmyyyy_tag(dt::Dates.TimeType=now())
+    month_abbr = ("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec")
+    d = Dates.Date(dt)
+    return lpad(string(Dates.day(d)), 2, '0') * month_abbr[Dates.month(d)] * string(Dates.year(d))
+end
+
+function next_versioned_campaign_name(output_root::AbstractString, stem::AbstractString)
+    prefix = stem * "_v"
+    max_v = 0
+    if isdir(output_root)
+        for entry in readdir(output_root)
+            startswith(entry, prefix) || continue
+            length(entry) > length(prefix) || continue
+            suffix = entry[(length(prefix) + 1):end]
+            v = tryparse(Int, suffix)
+            if v !== nothing
+                max_v = max(max_v, v)
+            end
+        end
+    end
+    next_v = max_v + 1
+    return "$(stem)_v$(next_v)"
+end
+
 function main()
     length(ARGS) >= 1 ||
         error("Usage: julia hpc_campaigns/launch_campaign.jl <campaign.yaml> [output_root_override]")
@@ -214,7 +238,7 @@ function main()
     c = load_ordered_yaml(campaign_file)
     campaign = haskey(c, "campaign") ? as_dict(c["campaign"]) : OrderedDict{String,Any}()
 
-    campaign_name = get(campaign, "name", "campaign_" * Dates.format(now(), "yyyymmdd_HHMMSS"))
+    campaign_base_name = String(get(campaign, "name", "campaign"))
     output_root_raw = if length(ARGS) >= 2
         String(ARGS[2])
     elseif haskey(campaign, "output_root_abs")
@@ -224,6 +248,9 @@ function main()
     end
     output_root = isabspath(output_root_raw) ? output_root_raw :
                   abspath(joinpath(dirname(campaign_file), output_root_raw))
+    campaign_date_tag = ddmmmyyyy_tag(now())
+    campaign_stem = "$(campaign_base_name)_$(campaign_date_tag)"
+    campaign_name = next_versioned_campaign_name(output_root, campaign_stem)
     app_script = String(get(campaign, "app_script", "scripts/solve_ground_state.jl"))
     params_filename = get(campaign, "params_filename", "parameters.yaml")
 
@@ -305,6 +332,8 @@ function main()
     end
 
     println("Campaign generated:")
+    println("  base_name: ", campaign_base_name)
+    println("  date_tag: ", campaign_date_tag)
     println("  name: ", campaign_name)
     println("  runs: ", length(assigns))
     println("  dir:  ", campaign_dir)

@@ -12,6 +12,9 @@ This folder contains HPC tooling to generate and submit many DMRG runs with a dy
 
 ## Workflow
 1. Edit `hpc_campaigns/templates/base_campaign.yaml`.
+   The generated campaign directory name is:
+   - `<campaign.name>_<ddmmmyyyy>_vN`
+   - example: `deep_mi_scan_22feb2026_v1`
 2. Generate runs:
    ```bash
    julia hpc_campaigns/launch_campaign.jl hpc_campaigns/templates/base_campaign.yaml
@@ -93,6 +96,8 @@ This gives 4 runs total:
 - `observables.triple_corr.pairs` is emitted in compact row form (`- [r, s]`).
 - `jobfile` contains one command per run:
   - `julia --project=<repo_root> <app_script> <run_dir>/parameters.yaml`
+- `campaign.name` is treated as a base stem; launcher appends date/version as
+  `<campaign.name>_<ddmmmyyyy>_vN`, where `vN` is auto-incremented inside `output_root`.
 - Paths for state/results/log/checkpoint are written as absolute paths per run.
 - `meta.run_name` in each generated config is set to `run_XXXX`.
 - If base config has `meta.date: AUTO`, `launch_campaign.jl` replaces it with the
