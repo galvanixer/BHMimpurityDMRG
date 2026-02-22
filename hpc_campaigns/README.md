@@ -41,6 +41,7 @@ It also creates:
 - `runs/<campaign_name>/runs.csv`
 - `runs/<campaign_name>/jobfile`
 - `runs/<campaign_name>/run_dirs.txt`
+- `runs/<campaign_name>/<campaign_yaml_filename>.yaml` (copy of the original unresolved launch YAML)
 
 ## Seed Generation
 - `sweep.initial_state.seed` supports:

@@ -256,6 +256,8 @@ function main()
 
     campaign_dir = joinpath(output_root, campaign_name)
     mkpath(campaign_dir)
+    campaign_yaml_copy = joinpath(campaign_dir, basename(campaign_file))
+    cp(campaign_file, campaign_yaml_copy; force=true)
 
     index_path = joinpath(campaign_dir, "runs.csv")
     jobfile_path = joinpath(campaign_dir, "jobfile")
@@ -306,6 +308,7 @@ function main()
     println("  name: ", campaign_name)
     println("  runs: ", length(assigns))
     println("  dir:  ", campaign_dir)
+    println("  campaign_yaml: ", campaign_yaml_copy)
     println("  runs_csv: ", index_path)
     println("  jobfile: ", jobfile_path)
     if auto_date_expanded_count > 0
