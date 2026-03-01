@@ -8,6 +8,7 @@ using HDF5
 
 const EARLY_STOP_MARKER = "Early stopping DMRG"
 const WROTE_RESULTS_MARKER = "Wrote results"
+const LOG_CHECKPOINT_SWEEP_REGEX = r"Wrote DMRG checkpoint at sweep\s+([0-9]+)"
 const ERROR_PATTERNS = [
     r"(?m)^ERROR:",
     r"(?m)^Stacktrace:",
@@ -57,6 +58,7 @@ function print_help(io::IO=stdout)
     println(io, "  - If <campaign_root_or_runs_root> points to one campaign directory, analyze that campaign.")
     println(io, "  - Otherwise, analyze all immediate subdirectories that look like launch_campaign outputs.")
     println(io, "  - Convergence source priority: results.h5 diagnostics first, run.log fallback second.")
+    println(io, "  - last_stored_sweep source priority: results diagnostics, then checkpoint.h5, then run.log.")
     println(io, "")
     println(io, "Output columns include:")
     println(io, "  campaign_name, run_id, run_dir, convergence_status, run_status, last_stored_sweep, and evidence.")
@@ -296,6 +298,39 @@ function read_diagnostics_converged(results_path::AbstractString)
     end
 end
 
+function read_checkpoint_sweep(checkpoint_path::AbstractString)
+    if !isfile(checkpoint_path)
+        return (
+            checkpoint_present=false,
+            checkpoint_sweep=nothing,
+            read_error=nothing
+        )
+    end
+
+    try
+        return HDF5.h5open(checkpoint_path, "r") do f
+            sweep = nothing
+            if haskey(f, "meta") && haskey(f["meta"], "checkpoint_sweep")
+                sweep = as_int_or_nothing(read(f["meta"]["checkpoint_sweep"]))
+            elseif haskey(f, "checkpoint_sweep")
+                # Backward compatibility for older checkpoint layouts.
+                sweep = as_int_or_nothing(read(f["checkpoint_sweep"]))
+            end
+            return (
+                checkpoint_present=true,
+                checkpoint_sweep=sweep,
+                read_error=sweep === nothing ? "checkpoint_sweep_missing_or_unparseable" : nothing
+            )
+        end
+    catch err
+        return (
+            checkpoint_present=true,
+            checkpoint_sweep=nothing,
+            read_error=clean_error(err)
+        )
+    end
+end
+
 function read_log_signals(log_path::AbstractString)
     if !isfile(log_path)
         return (
@@ -303,6 +338,7 @@ function read_log_signals(log_path::AbstractString)
             early_stop=false,
             wrote_results=false,
             has_error=false,
+            checkpoint_sweep=nothing,
             read_error=nothing
         )
     end
@@ -312,11 +348,18 @@ function read_log_signals(log_path::AbstractString)
         early_stop = occursin(EARLY_STOP_MARKER, txt)
         wrote_results = occursin(WROTE_RESULTS_MARKER, txt)
         has_error = any(p -> occursin(p, txt), ERROR_PATTERNS)
+        checkpoint_sweep = nothing
+        for m in eachmatch(LOG_CHECKPOINT_SWEEP_REGEX, txt)
+            sw = as_int_or_nothing(m.captures[1])
+            sw === nothing && continue
+            checkpoint_sweep = checkpoint_sweep === nothing ? sw : max(checkpoint_sweep, sw)
+        end
         return (
             log_present=true,
             early_stop=early_stop,
             wrote_results=wrote_results,
             has_error=has_error,
+            checkpoint_sweep=checkpoint_sweep,
             read_error=nothing
         )
     catch err
@@ -325,6 +368,7 @@ function read_log_signals(log_path::AbstractString)
             early_stop=false,
             wrote_results=false,
             has_error=false,
+            checkpoint_sweep=nothing,
             read_error=clean_error(err)
         )
     end
@@ -340,9 +384,11 @@ function assess_run(
     run_dir_abs = abspath(run_dir)
     run_id = basename(normpath(run_dir))
     results_path = joinpath(run_dir_abs, "results.h5")
+    checkpoint_path = joinpath(run_dir_abs, "dmrg_state_checkpoint.h5")
     log_path = joinpath(run_dir_abs, "run.log")
 
     diag = read_diagnostics_converged(results_path)
+    checkpoint = read_checkpoint_sweep(checkpoint_path)
     log = read_log_signals(log_path)
 
     convergence_status = "unknown"
@@ -365,6 +411,15 @@ function assess_run(
         run_status = "missing"
     end
 
+    last_stored_sweep = nothing
+    if diag.last_stored_sweep !== nothing
+        last_stored_sweep = diag.last_stored_sweep
+    elseif checkpoint.checkpoint_sweep !== nothing
+        last_stored_sweep = checkpoint.checkpoint_sweep
+    elseif log.checkpoint_sweep !== nothing
+        last_stored_sweep = log.checkpoint_sweep
+    end
+
     evidence = String[]
     if diag.converged !== nothing
         push!(evidence, "results.h5:/diagnostics/dmrg/converged=$(diag.converged)")
@@ -379,12 +434,20 @@ function assess_run(
     if log.log_present
         log.early_stop && push!(evidence, "run.log contains '$EARLY_STOP_MARKER'")
         log.wrote_results && push!(evidence, "run.log contains '$WROTE_RESULTS_MARKER'")
+        log.checkpoint_sweep !== nothing && push!(evidence, "run.log checkpoint sweep=$(log.checkpoint_sweep)")
         log.has_error && push!(evidence, "run.log contains error signature")
     else
         push!(evidence, "run.log missing")
     end
 
+    if diag.last_stored_sweep !== nothing
+        push!(evidence, "last_stored_sweep from results.h5 diagnostics=$(diag.last_stored_sweep)")
+    elseif checkpoint.checkpoint_sweep !== nothing
+        push!(evidence, "last_stored_sweep from checkpoint.h5 meta/checkpoint_sweep=$(checkpoint.checkpoint_sweep)")
+    end
+
     diag.read_error !== nothing && push!(evidence, "results_read_error=$(diag.read_error)")
+    checkpoint.read_error !== nothing && push!(evidence, "checkpoint_read_error=$(checkpoint.read_error)")
     log.read_error !== nothing && push!(evidence, "log_read_error=$(log.read_error)")
 
     run_dir_out = absolute_paths ? run_dir_abs : relpath(run_dir_abs, campaign_dir_abs)
@@ -395,7 +458,7 @@ function assess_run(
         run_dir=String(run_dir_out),
         convergence_status=convergence_status,
         run_status=run_status,
-        last_stored_sweep=diag.last_stored_sweep === nothing ? missing : diag.last_stored_sweep,
+        last_stored_sweep=last_stored_sweep === nothing ? missing : last_stored_sweep,
         converged_from_diagnostics=diag.converged === nothing ? missing : diag.converged,
         used_log_fallback=used_log_fallback,
         results_present=diag.results_present,

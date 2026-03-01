@@ -63,7 +63,10 @@ The CSV contains tri-state `convergence_status`:
 
 It also includes `run_status` and `evidence` columns to explain classification.
 `run_dir` is relative to the campaign by default. Use `--absolute-paths` to write absolute paths.
-`last_stored_sweep` is read from `results.h5:/diagnostics/dmrg` (derived from diagnostics sweep metadata).
+`last_stored_sweep` source priority:
+1. `results.h5:/diagnostics/dmrg` sweep metadata
+2. `dmrg_state_checkpoint.h5:/meta/checkpoint_sweep`
+3. `run.log` checkpoint lines (`Wrote DMRG checkpoint at sweep ...`)
 
 ## Output layout
 The JLD2 file contains:
