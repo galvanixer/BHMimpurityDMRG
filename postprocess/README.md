@@ -63,6 +63,7 @@ The CSV contains tri-state `convergence_status`:
 It also includes `run_status` and `evidence` columns to explain classification.
 The CSV also includes per-run Hamiltonian parameters:
 `t_a`, `t_b`, `U_a`, `U_b`, `U_ab`, `mu_a`, `mu_b`.
+It also includes `seed_initial_state` from `initial_state.seed`.
 Parameter source priority:
 1. `results.h5:/meta/params_yaml`
 2. run-directory YAML (for example `parameters.yaml`)

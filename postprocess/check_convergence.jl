@@ -136,6 +136,10 @@ function read_hamiltonian_params(run_dir::AbstractString, results_path::Abstract
     end
 
     return (
+        seed_initial_state=begin
+            v = cfg === nothing ? nothing : nested_get(cfg, ["initial_state", "seed"], nothing)
+            v === nothing ? missing : v
+        end,
         t_a=hparam_or_missing(cfg, "t_a"),
         t_b=hparam_or_missing(cfg, "t_b"),
         U_a=hparam_or_missing(cfg, "U_a"),
@@ -162,7 +166,7 @@ function print_help(io::IO=stdout)
     println(io, "  - last_stored_sweep source priority: results diagnostics, then checkpoint.h5, then run.log.")
     println(io, "")
     println(io, "Output columns include:")
-    println(io, "  campaign_name, run_id, hamiltonian params, convergence_status, run_status, last_stored_sweep, and evidence.")
+    println(io, "  campaign_name, run_id, seed_initial_state, hamiltonian params, convergence_status, run_status, last_stored_sweep, and evidence.")
     println(io, "")
     println(io, "Examples:")
     println(io, "  julia --startup-file=no --project=postprocess postprocess/$script runs/deep_mi_scan_22feb2026_v1")
@@ -547,6 +551,7 @@ function assess_run(
     return (
         campaign_name=String(campaign_name),
         run_id=String(run_id),
+        seed_initial_state=hparams.seed_initial_state,
         t_a=hparams.t_a,
         t_b=hparams.t_b,
         U_a=hparams.U_a,
