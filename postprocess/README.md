@@ -73,8 +73,8 @@ Parameter source priority:
 2. `dmrg_state_checkpoint.h5:/meta/checkpoint_sweep`
 3. `run.log` checkpoint lines (`Wrote DMRG checkpoint at sweep ...`)
 
-`aggregate_results.jl` now also augments its summary rows with convergence-core fields such as:
-`convergence_status`, `run_status`, `last_stored_sweep`, diagnostics/log flags, and `convergence_evidence`.
+`aggregate_results.jl` now also augments its summary rows with only these convergence-core fields:
+`convergence_status`, `last_stored_sweep`, `results_present`, and `evidence`.
 
 ## Build resume jobfile
 Use `build_resume_jobfile.jl` to create a resume-only `jobfile` from a convergence CSV.
