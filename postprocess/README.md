@@ -62,8 +62,8 @@ The CSV contains tri-state `convergence_status`:
 - `unknown`
 
 It also includes `run_status` and `evidence` columns to explain classification.
-Path columns (`run_dir`, `results_path`, `log_path`) are relative to the campaign by default.
-Use `--absolute-paths` to write absolute filesystem paths instead.
+`run_dir` is relative to the campaign by default. Use `--absolute-paths` to write absolute paths.
+`last_stored_sweep` is read from `results.h5:/diagnostics/dmrg` (derived from diagnostics sweep metadata).
 
 ## Output layout
 The JLD2 file contains:

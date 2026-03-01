@@ -15,6 +15,34 @@ const ERROR_PATTERNS = [
     r"(?i)\bkilled\b"
 ]
 
+@inline function as_int_or_nothing(x)
+    if x === nothing
+        return nothing
+    elseif x isa Integer
+        return Int(x)
+    elseif x isa AbstractFloat
+        return isfinite(x) ? Int(round(x)) : nothing
+    elseif x isa AbstractString
+        try
+            return parse(Int, strip(x))
+        catch
+            return nothing
+        end
+    elseif x isa AbstractArray && length(x) == 1
+        return as_int_or_nothing(first(x))
+    end
+    return nothing
+end
+
+@inline function as_string_or_nothing(x)
+    x === nothing && return nothing
+    try
+        return String(x)
+    catch
+        return string(x)
+    end
+end
+
 function print_help(io::IO=stdout)
     script = basename(@__FILE__)
     println(io, "Usage:")
@@ -31,7 +59,7 @@ function print_help(io::IO=stdout)
     println(io, "  - Convergence source priority: results.h5 diagnostics first, run.log fallback second.")
     println(io, "")
     println(io, "Output columns include:")
-    println(io, "  campaign_name, run_id, convergence_status, run_status, evidence, and path fields.")
+    println(io, "  campaign_name, run_id, run_dir, convergence_status, run_status, last_stored_sweep, and evidence.")
     println(io, "")
     println(io, "Examples:")
     println(io, "  julia --startup-file=no --project=postprocess postprocess/$script runs/deep_mi_scan_22feb2026_v1")
@@ -179,6 +207,7 @@ function read_diagnostics_converged(results_path::AbstractString)
             results_present=false,
             diagnostics_present=false,
             converged=nothing,
+            last_stored_sweep=nothing,
             read_error=nothing
         )
     end
@@ -191,15 +220,47 @@ function read_diagnostics_converged(results_path::AbstractString)
                     results_present=true,
                     diagnostics_present=false,
                     converged=nothing,
+                    last_stored_sweep=nothing,
                     read_error=nothing
                 )
             end
             g_dmrg = f["diagnostics"]["dmrg"]
+
+            sweeps_completed = if haskey(g_dmrg, "sweeps_completed")
+                as_int_or_nothing(read(g_dmrg["sweeps_completed"]))
+            elseif haskey(g_dmrg, "sweep_trace")
+                try
+                    size(g_dmrg["sweep_trace"], 1)
+                catch
+                    nothing
+                end
+            else
+                nothing
+            end
+
+            checkpoint_sweep_start = haskey(g_dmrg, "checkpoint_sweep_start") ?
+                as_int_or_nothing(read(g_dmrg["checkpoint_sweep_start"])) : 0
+            checkpoint_sweep_start === nothing && (checkpoint_sweep_start = 0)
+
+            resume_mode = haskey(g_dmrg, "resume_mode") ?
+                lowercase(strip(String(as_string_or_nothing(read(g_dmrg["resume_mode"]))))) : ""
+
+            last_stored_sweep = if sweeps_completed === nothing
+                checkpoint_sweep_start > 0 ? checkpoint_sweep_start : nothing
+            elseif resume_mode == "remaining"
+                checkpoint_sweep_start + sweeps_completed
+            elseif sweeps_completed == 0 && checkpoint_sweep_start > 0
+                checkpoint_sweep_start
+            else
+                sweeps_completed
+            end
+
             if !haskey(g_dmrg, "converged")
                 return (
                     results_present=true,
                     diagnostics_present=true,
                     converged=nothing,
+                    last_stored_sweep=last_stored_sweep,
                     read_error=nothing
                 )
             end
@@ -220,6 +281,7 @@ function read_diagnostics_converged(results_path::AbstractString)
                 results_present=true,
                 diagnostics_present=true,
                 converged=val,
+                last_stored_sweep=last_stored_sweep,
                 read_error=val === nothing ? "unparseable_diagnostics_converged" : nothing
             )
         end
@@ -228,6 +290,7 @@ function read_diagnostics_converged(results_path::AbstractString)
             results_present=true,
             diagnostics_present=false,
             converged=nothing,
+            last_stored_sweep=nothing,
             read_error=clean_error(err)
         )
     end
@@ -325,25 +388,22 @@ function assess_run(
     log.read_error !== nothing && push!(evidence, "log_read_error=$(log.read_error)")
 
     run_dir_out = absolute_paths ? run_dir_abs : relpath(run_dir_abs, campaign_dir_abs)
-    results_path_out = absolute_paths ? abspath(results_path) : relpath(results_path, campaign_dir_abs)
-    log_path_out = absolute_paths ? abspath(log_path) : relpath(log_path, campaign_dir_abs)
 
     return (
         campaign_name=String(campaign_name),
         run_id=String(run_id),
         run_dir=String(run_dir_out),
-        results_path=String(results_path_out),
-        log_path=String(log_path_out),
         convergence_status=convergence_status,
         run_status=run_status,
+        last_stored_sweep=diag.last_stored_sweep === nothing ? missing : diag.last_stored_sweep,
+        converged_from_diagnostics=diag.converged === nothing ? missing : diag.converged,
+        used_log_fallback=used_log_fallback,
         results_present=diag.results_present,
         diagnostics_present=diag.diagnostics_present,
-        converged_from_diagnostics=diag.converged === nothing ? missing : diag.converged,
         log_present=log.log_present,
+        log_has_error=log.has_error,
         log_early_stop=log.early_stop,
         log_wrote_results=log.wrote_results,
-        log_has_error=log.has_error,
-        used_log_fallback=used_log_fallback,
         evidence=join(evidence, "; ")
     )
 end
