@@ -171,6 +171,8 @@ function compute_observables(
             error("observables.density_density.same_site_convention must be \"factorial\" or \"plain\"")
     end
     sf_factorial_diagonal = (same_site_convention == "factorial")
+    dd_backend = lowercase(String(_cfg_get(dd_cfg, "backend", "correlation_matrix")))
+    dd_ishermitian = _parse_bool(_cfg_get(dd_cfg, "ishermitian", true), true)
     max_r = _cfg_get(dd_cfg, "max_r", nothing)
     max_r = max_r === nothing ? nothing : Int(max_r)
     fold_min_image = _parse_bool(_cfg_get(dd_cfg, "fold_min_image", false), false)
@@ -186,7 +188,9 @@ function compute_observables(
                 psi,
                 sites,
                 "Na";
-                same_site_convention=same_site_convention
+                same_site_convention=same_site_convention,
+                backend=dd_backend,
+                ishermitian=dd_ishermitian
             )
         end
         if "Nb" in needed_ops
@@ -194,7 +198,9 @@ function compute_observables(
                 psi,
                 sites,
                 "Nb";
-                same_site_convention=same_site_convention
+                same_site_convention=same_site_convention,
+                backend=dd_backend,
+                ishermitian=dd_ishermitian
             )
         end
     end

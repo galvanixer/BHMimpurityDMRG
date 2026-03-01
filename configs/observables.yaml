@@ -10,6 +10,8 @@ observables:
 
   density_density:
     species: "both"            # "a", "b", or "both"
+    backend: "correlation_matrix"  # "correlation_matrix" (fast) or "legacy" (MPO-per-pair)
+    ishermitian: true          # If true, use Hermitian symmetry optimization in correlation_matrix backend
     max_r: 6                   # Correlator distances r in [0, max_r]; if omitted, uses [0, L-1]
     fold_min_image: false      # If true with periodic lattice, fold r using minimum-image convention
     same_site_convention: "factorial"  # "factorial" => n(n-1) on i=j, "plain" => n^2 on i=j

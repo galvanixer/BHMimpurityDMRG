@@ -6,16 +6,21 @@
 # Two-point density correlators
 # ----------------------------
 
-"""
-    density_density_matrix(psi, sites, opname::String; same_site_convention::String="factorial")
+@inline function _validate_same_site_convention(same_site_convention::String)
+    conv = lowercase(same_site_convention)
+    conv in ("factorial", "plain") ||
+        throw(ArgumentError("same_site_convention must be \"factorial\" or \"plain\""))
+    return conv
+end
 
-Return `(nvec, nnmat)` where:
-- `nvec[i] = ⟨n_i⟩`
-- `nnmat[i,j] = ⟨n_i n_j⟩` for `i != j`
-- `nnmat[i,i] = ⟨n_i(n_i-1)⟩` if `same_site_convention=="factorial"`
-- `nnmat[i,i] = ⟨n_i^2⟩` if `same_site_convention=="plain"`
 """
-function density_density_matrix(
+    density_density_matrix_legacy(psi, sites, opname::String; same_site_convention::String="factorial")
+
+Legacy implementation based on repeated `expect_nn` evaluations.
+Returns `(nvec, nnmat)` with diagonal convention controlled by
+`same_site_convention` (`"factorial"` or `"plain"`).
+"""
+function density_density_matrix_legacy(
     psi::MPS,
     sites,
     opname::String;
@@ -24,9 +29,7 @@ function density_density_matrix(
     L = length(sites)
     nvec = zeros(Float64, L)
     nnmat = zeros(Float64, L, L)
-    conv = lowercase(same_site_convention)
-    conv in ("factorial", "plain") ||
-        throw(ArgumentError("same_site_convention must be \"factorial\" or \"plain\""))
+    conv = _validate_same_site_convention(same_site_convention)
 
     for i in 1:L
         nvec[i] = expect_n(psi, sites, opname, i)
@@ -39,6 +42,85 @@ function density_density_matrix(
         end
     end
     return nvec, nnmat
+end
+
+"""
+    density_density_matrix_correlation(psi, sites, opname::String;
+                                       same_site_convention::String="factorial",
+                                       ishermitian::Bool=true)
+
+Fast implementation based on `ITensorMPS.correlation_matrix`.
+"""
+function density_density_matrix_correlation(
+    psi::MPS,
+    sites,
+    opname::String;
+    same_site_convention::String="factorial",
+    ishermitian::Bool=true
+)
+    L = length(sites)
+    length(psi) == L ||
+        throw(ArgumentError("sites length ($L) must match MPS length ($(length(psi)))"))
+    conv = _validate_same_site_convention(same_site_convention)
+
+    site_range = 1:L
+    n_raw = expect(psi, opname; sites=site_range)
+    nvec = Float64.(real.(collect(n_raw)))
+    nnmat = Float64.(real.(correlation_matrix(
+        psi,
+        opname,
+        opname;
+        sites=site_range,
+        ishermitian=ishermitian
+    )))
+
+    if conv == "factorial"
+        @inbounds for i in 1:L
+            nnmat[i, i] -= nvec[i]
+        end
+    end
+
+    return nvec, nnmat
+end
+
+"""
+    density_density_matrix(psi, sites, opname::String;
+                           same_site_convention::String="factorial",
+                           backend::Union{Symbol,AbstractString}=:correlation_matrix,
+                           ishermitian::Bool=true)
+
+Compute `(nvec, nnmat)` using the selected backend:
+- `backend=:correlation_matrix` (default): fast MPS correlation routine
+- `backend=:legacy`: previous MPO-per-pair implementation
+"""
+function density_density_matrix(
+    psi::MPS,
+    sites,
+    opname::String;
+    same_site_convention::String="factorial",
+    backend::Union{Symbol,AbstractString}=:correlation_matrix,
+    ishermitian::Bool=true
+)
+    b = lowercase(String(backend))
+    if b in ("correlation_matrix", "correlation", "fast")
+        return density_density_matrix_correlation(
+            psi,
+            sites,
+            opname;
+            same_site_convention=same_site_convention,
+            ishermitian=ishermitian
+        )
+    elseif b in ("legacy", "mpo", "opsum")
+        return density_density_matrix_legacy(
+            psi,
+            sites,
+            opname;
+            same_site_convention=same_site_convention
+        )
+    end
+    throw(ArgumentError(
+        "backend must be one of :correlation_matrix/:legacy (also accepts correlation, fast, mpo, opsum); got \"$backend\""
+    ))
 end
 
 """
