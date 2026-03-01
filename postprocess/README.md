@@ -72,6 +72,38 @@ Parameter source priority:
 2. `dmrg_state_checkpoint.h5:/meta/checkpoint_sweep`
 3. `run.log` checkpoint lines (`Wrote DMRG checkpoint at sweep ...`)
 
+## Build resume jobfile
+Use `build_resume_jobfile.jl` to create a resume-only `jobfile` from a convergence CSV.
+
+Examples:
+
+```bash
+./bin/build_resume_jobfile runs/<campaign_name>
+./bin/build_resume_jobfile --mode unconverged runs/<campaign_name>
+```
+
+Default inputs:
+- `runs/<campaign_name>/Convergence_<campaign_name>.csv`
+- `runs/<campaign_name>/runs.csv`
+- `runs/<campaign_name>/jobfile`
+
+Default output directory:
+- `runs/<campaign_name>/resume_<yyyymmdd_HHMMSS>/`
+
+Files written:
+- `jobfile` (resume-only command list)
+- `resume_manifest.csv` (audit mapping `run_id -> jobfile_line` + include/exclude reason)
+
+Modes:
+- `halfway` (default): `convergence_status != converged` AND `run_status in {failed,unknown,missing}` AND `last_stored_sweep` present
+- `unconverged`: `convergence_status != converged`
+
+Submit the generated resume batch with:
+
+```bash
+bash hpc_campaigns/slurm/submit_multilauncher.sh runs/<campaign_name>/resume_<timestamp>
+```
+
 ## Output layout
 The JLD2 file contains:
 - `manifest`: aggregation config, discovered files, schema counts.
