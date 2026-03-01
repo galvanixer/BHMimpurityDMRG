@@ -5,19 +5,13 @@
 using HDF5
 using YAML
 using Statistics
+if !isdefined(@__MODULE__, :_POSTPROCESS_COMMON_INCLUDED)
+    const _POSTPROCESS_COMMON_INCLUDED = true
+    include(joinpath(@__DIR__, "common.jl"))
+end
 
 const DEFAULT_RESULTS_SCHEMA_ID = "bhmimpuritydmrg.results"
 const DEFAULT_RESULTS_SCHEMA_VERSION = "1.0.0"
-
-function normalize_yaml(x)
-    if x isa AbstractDict
-        return Dict{String,Any}(String(k) => normalize_yaml(v) for (k, v) in x)
-    elseif x isa AbstractVector
-        return [normalize_yaml(v) for v in x]
-    else
-        return x
-    end
-end
 
 @inline function parse_bool(x, default::Bool=false)
     x === nothing && return default
@@ -29,15 +23,6 @@ end
         return false
     end
     return default
-end
-
-@inline function as_string_or_nothing(x)
-    x === nothing && return nothing
-    try
-        return String(x)
-    catch
-        return string(x)
-    end
 end
 
 @inline function read_if_exists(parent, name::AbstractString; default=nothing)
@@ -65,18 +50,6 @@ end
 
 @inline function profile_bool(profile::AbstractDict, key::AbstractString, default::Bool)
     return parse_bool(get(profile, key, default), default)
-end
-
-@inline function nested_get(d::AbstractDict, path::Vector{String}, default=nothing)
-    cur = d
-    for p in path
-        if cur isa AbstractDict && haskey(cur, p)
-            cur = cur[p]
-        else
-            return default
-        end
-    end
-    return cur
 end
 
 @inline function safe_mean(x)

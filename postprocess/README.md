@@ -39,6 +39,7 @@ Profiles are defined in `postprocess/extract_profile.yaml`.
 
 ## Convergence report
 Use `check_convergence.jl` to summarize which runs converged.
+Core logic lives in `postprocess/convergence_core.jl` and is also used by `aggregate_results.jl`.
 
 It uses this source priority:
 1. `results.h5:/diagnostics/dmrg/converged` (authoritative when present)
@@ -71,6 +72,9 @@ Parameter source priority:
 1. `results.h5:/diagnostics/dmrg` sweep metadata
 2. `dmrg_state_checkpoint.h5:/meta/checkpoint_sweep`
 3. `run.log` checkpoint lines (`Wrote DMRG checkpoint at sweep ...`)
+
+`aggregate_results.jl` now also augments its summary rows with convergence-core fields such as:
+`convergence_status`, `run_status`, `last_stored_sweep`, diagnostics/log flags, and `convergence_evidence`.
 
 ## Build resume jobfile
 Use `build_resume_jobfile.jl` to create a resume-only `jobfile` from a convergence CSV.

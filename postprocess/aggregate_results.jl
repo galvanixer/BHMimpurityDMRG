@@ -11,12 +11,36 @@ using JLD2
 using YAML
 
 include(joinpath(@__DIR__, "parsers.jl"))
+if !isdefined(@__MODULE__, :_POSTPROCESS_CONVERGENCE_CORE_INCLUDED)
+    const _POSTPROCESS_CONVERGENCE_CORE_INCLUDED = true
+    include(joinpath(@__DIR__, "convergence_core.jl"))
+end
 
 const PREFERRED_SUMMARY_COLUMN_ORDER = [
     "campaign_name",
     "run_id",
     "cfg_meta_run_name",
     "status",
+    "convergence_status",
+    "run_status",
+    "last_stored_sweep",
+    "converged_from_diagnostics",
+    "used_log_fallback",
+    "results_present",
+    "diagnostics_present",
+    "log_present",
+    "log_has_error",
+    "log_early_stop",
+    "log_wrote_results",
+    "seed_initial_state",
+    "t_a",
+    "t_b",
+    "U_a",
+    "U_b",
+    "U_ab",
+    "mu_a",
+    "mu_b",
+    "convergence_evidence",
     "schema_id",
     "schema_version",
     "cfg_lattice_L",
@@ -49,6 +73,30 @@ const PREFERRED_SUMMARY_COLUMN_ORDER = [
     "has_sampled_configs",
     "issues"
 ]
+
+function add_convergence_row_fields!(row::Dict{String,Any}, conv)
+    row["convergence_status"] = conv.convergence_status
+    row["run_status"] = conv.run_status
+    row["last_stored_sweep"] = conv.last_stored_sweep
+    row["converged_from_diagnostics"] = conv.converged_from_diagnostics
+    row["used_log_fallback"] = conv.used_log_fallback
+    row["results_present"] = conv.results_present
+    row["diagnostics_present"] = conv.diagnostics_present
+    row["log_present"] = conv.log_present
+    row["log_has_error"] = conv.log_has_error
+    row["log_early_stop"] = conv.log_early_stop
+    row["log_wrote_results"] = conv.log_wrote_results
+    row["seed_initial_state"] = conv.seed_initial_state
+    row["t_a"] = conv.t_a
+    row["t_b"] = conv.t_b
+    row["U_a"] = conv.U_a
+    row["U_b"] = conv.U_b
+    row["U_ab"] = conv.U_ab
+    row["mu_a"] = conv.mu_a
+    row["mu_b"] = conv.mu_b
+    row["convergence_evidence"] = conv.evidence
+    return row
+end
 
 function print_help(io::IO=stdout)
     script = basename(@__FILE__)
@@ -351,6 +399,7 @@ function aggregate_results(
         verbose && println("[$idx/$(length(results_files))] Parsing $(abspath(path))")
         abs_path = abspath(path)
         run_dir = dirname(abs_path)
+        conv = assess_run(campaign_name, run_dir)
         try
             parsed = parse_results_file(abs_path; profile=profile)
             schema = get(parsed, "schema", Dict{String,Any}())
@@ -368,6 +417,7 @@ function aggregate_results(
                 "summary" => get(parsed, "summary", Dict{String,Any}()),
                 "observables" => get(parsed, "observables", Dict{String,Any}()),
                 "issues" => get(parsed, "issues", String[]),
+                "convergence" => conv,
                 "status" => "ok"
             )
             runs[run_id] = run_record
@@ -378,6 +428,7 @@ function aggregate_results(
             row["run_id"] = run_id
             row["status"] = "ok"
             row["issues"] = run_record["issues"]
+            add_convergence_row_fields!(row, conv)
             push!(summary_rows, row)
             n_success += 1
         catch err
@@ -389,11 +440,13 @@ function aggregate_results(
                 "error" => err_msg,
                 "issues" => ["parser_exception"]
             )
+            add_convergence_row_fields!(row, conv)
             push!(summary_rows, row)
             runs[run_id] = Dict{String,Any}(
                 "run_id" => run_id,
                 "results_path" => abs_path,
                 "run_dir" => run_dir,
+                "convergence" => conv,
                 "status" => "error",
                 "error" => err_msg
             )
