@@ -5,6 +5,7 @@
 using CSV
 using DataFrames
 using HDF5
+using YAML
 
 const EARLY_STOP_MARKER = "Early stopping DMRG"
 const WROTE_RESULTS_MARKER = "Wrote results"
@@ -44,13 +45,113 @@ end
     end
 end
 
+function normalize_yaml(x)
+    if x isa AbstractDict
+        return Dict{String,Any}(String(k) => normalize_yaml(v) for (k, v) in x)
+    elseif x isa AbstractVector
+        return [normalize_yaml(v) for v in x]
+    else
+        return x
+    end
+end
+
+@inline function nested_get(d::AbstractDict, path::Vector{String}, default=nothing)
+    cur = d
+    for p in path
+        if cur isa AbstractDict && haskey(cur, p)
+            cur = cur[p]
+        else
+            return default
+        end
+    end
+    return cur
+end
+
+@inline function hparam_or_missing(cfg, key::AbstractString)
+    cfg === nothing && return missing
+    v = nested_get(cfg, ["hamiltonian", key], nothing)
+    return v === nothing ? missing : v
+end
+
+function read_params_yaml_from_results(results_path::AbstractString)
+    if !isfile(results_path)
+        return nothing
+    end
+    try
+        return HDF5.h5open(results_path, "r") do f
+            haskey(f, "meta") || return nothing
+            g_meta = f["meta"]
+            haskey(g_meta, "params_yaml") || return nothing
+            raw = read(g_meta["params_yaml"])
+            txt = as_string_or_nothing(raw)
+            txt === nothing && return nothing
+            parsed = YAML.load(txt)
+            return parsed === nothing ? nothing : normalize_yaml(parsed)
+        end
+    catch
+        return nothing
+    end
+end
+
+function guess_params_file(run_dir::AbstractString)
+    default_path = joinpath(run_dir, "parameters.yaml")
+    if isfile(default_path)
+        return default_path
+    end
+
+    yamls = String[]
+    for fn in sort(readdir(run_dir))
+        p = joinpath(run_dir, fn)
+        isfile(p) || continue
+        low = lowercase(fn)
+        (endswith(low, ".yaml") || endswith(low, ".yml")) || continue
+        push!(yamls, p)
+    end
+    isempty(yamls) && return nothing
+    if length(yamls) == 1
+        return yamls[1]
+    end
+
+    for p in yamls
+        occursin("param", lowercase(basename(p))) && return p
+    end
+    return yamls[1]
+end
+
+function read_params_yaml_from_file(run_dir::AbstractString)
+    path = guess_params_file(run_dir)
+    path === nothing && return nothing
+    try
+        parsed = YAML.load_file(path)
+        return parsed === nothing ? nothing : normalize_yaml(parsed)
+    catch
+        return nothing
+    end
+end
+
+function read_hamiltonian_params(run_dir::AbstractString, results_path::AbstractString)
+    cfg = read_params_yaml_from_results(results_path)
+    if cfg === nothing
+        cfg = read_params_yaml_from_file(run_dir)
+    end
+
+    return (
+        t_a=hparam_or_missing(cfg, "t_a"),
+        t_b=hparam_or_missing(cfg, "t_b"),
+        U_a=hparam_or_missing(cfg, "U_a"),
+        U_b=hparam_or_missing(cfg, "U_b"),
+        U_ab=hparam_or_missing(cfg, "U_ab"),
+        mu_a=hparam_or_missing(cfg, "mu_a"),
+        mu_b=hparam_or_missing(cfg, "mu_b")
+    )
+end
+
 function print_help(io::IO=stdout)
     script = basename(@__FILE__)
     println(io, "Usage:")
     println(io, "  julia --startup-file=no --project=postprocess postprocess/$script [options] <campaign_root_or_runs_root> [output_csv]")
     println(io, "")
     println(io, "Options:")
-    println(io, "  --absolute-paths       Write absolute paths in CSV (default: relative to campaign)")
     println(io, "  --quiet                Reduce progress output")
     println(io, "  -h, --help             Show this help")
     println(io, "")
@@ -61,7 +162,7 @@ function print_help(io::IO=stdout)
     println(io, "  - last_stored_sweep source priority: results diagnostics, then checkpoint.h5, then run.log.")
     println(io, "")
     println(io, "Output columns include:")
-    println(io, "  campaign_name, run_id, run_dir, convergence_status, run_status, last_stored_sweep, and evidence.")
+    println(io, "  campaign_name, run_id, hamiltonian params, convergence_status, run_status, last_stored_sweep, and evidence.")
     println(io, "")
     println(io, "Examples:")
     println(io, "  julia --startup-file=no --project=postprocess postprocess/$script runs/deep_mi_scan_22feb2026_v1")
@@ -71,7 +172,6 @@ end
 function parse_args(args::Vector{String})
     show_help = false
     verbose = true
-    absolute_paths = false
     positional = String[]
 
     i = 1
@@ -79,9 +179,6 @@ function parse_args(args::Vector{String})
         a = args[i]
         if a in ("-h", "--help")
             show_help = true
-            i += 1
-        elseif a == "--absolute-paths"
-            absolute_paths = true
             i += 1
         elseif a == "--quiet"
             verbose = false
@@ -109,7 +206,6 @@ function parse_args(args::Vector{String})
     return (
         show_help=show_help,
         verbose=verbose,
-        absolute_paths=absolute_paths,
         root=root,
         output_csv=output_csv
     )
@@ -376,17 +472,15 @@ end
 
 function assess_run(
     campaign_name::AbstractString,
-    campaign_dir::AbstractString,
-    run_dir::AbstractString;
-    absolute_paths::Bool=false
+    run_dir::AbstractString
 )
-    campaign_dir_abs = abspath(campaign_dir)
     run_dir_abs = abspath(run_dir)
     run_id = basename(normpath(run_dir))
     results_path = joinpath(run_dir_abs, "results.h5")
     checkpoint_path = joinpath(run_dir_abs, "dmrg_state_checkpoint.h5")
     log_path = joinpath(run_dir_abs, "run.log")
 
+    hparams = read_hamiltonian_params(run_dir_abs, results_path)
     diag = read_diagnostics_converged(results_path)
     checkpoint = read_checkpoint_sweep(checkpoint_path)
     log = read_log_signals(log_path)
@@ -450,12 +544,16 @@ function assess_run(
     checkpoint.read_error !== nothing && push!(evidence, "checkpoint_read_error=$(checkpoint.read_error)")
     log.read_error !== nothing && push!(evidence, "log_read_error=$(log.read_error)")
 
-    run_dir_out = absolute_paths ? run_dir_abs : relpath(run_dir_abs, campaign_dir_abs)
-
     return (
         campaign_name=String(campaign_name),
         run_id=String(run_id),
-        run_dir=String(run_dir_out),
+        t_a=hparams.t_a,
+        t_b=hparams.t_b,
+        U_a=hparams.U_a,
+        U_b=hparams.U_b,
+        U_ab=hparams.U_ab,
+        mu_a=hparams.mu_a,
+        mu_b=hparams.mu_b,
         convergence_status=convergence_status,
         run_status=run_status,
         last_stored_sweep=last_stored_sweep === nothing ? missing : last_stored_sweep,
@@ -513,7 +611,7 @@ function main(args=ARGS)
             continue
         end
         for run_dir in run_dirs
-            push!(rows, assess_run(campaign_name, campaign_dir, run_dir; absolute_paths=opts.absolute_paths))
+            push!(rows, assess_run(campaign_name, run_dir))
         end
     end
 

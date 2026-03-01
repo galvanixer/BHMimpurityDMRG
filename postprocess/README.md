@@ -49,7 +49,6 @@ Examples:
 ```bash
 ./bin/check_convergence runs/<campaign_name>
 ./bin/check_convergence runs
-./bin/check_convergence --absolute-paths runs/<campaign_name>
 ```
 
 Default outputs:
@@ -62,7 +61,11 @@ The CSV contains tri-state `convergence_status`:
 - `unknown`
 
 It also includes `run_status` and `evidence` columns to explain classification.
-`run_dir` is relative to the campaign by default. Use `--absolute-paths` to write absolute paths.
+The CSV also includes per-run Hamiltonian parameters:
+`t_a`, `t_b`, `U_a`, `U_b`, `U_ab`, `mu_a`, `mu_b`.
+Parameter source priority:
+1. `results.h5:/meta/params_yaml`
+2. run-directory YAML (for example `parameters.yaml`)
 `last_stored_sweep` source priority:
 1. `results.h5:/diagnostics/dmrg` sweep metadata
 2. `dmrg_state_checkpoint.h5:/meta/checkpoint_sweep`
