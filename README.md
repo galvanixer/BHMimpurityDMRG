@@ -46,6 +46,13 @@ Aggregate many HPC runs into one JLD2 file:
 ./bin/aggregate_results runs/<campaign_name>
 ```
 
+Update observables for all runs in a campaign using a new observables config:
+```bash
+./bin/update_campaign_observables runs/<campaign_name> configs/observables.yaml
+./bin/update_campaign_observables --missing-results from-checkpoint runs/<campaign_name> configs/observables.yaml
+```
+When `--missing-results from-checkpoint` is used, missing outputs are generated as `results_from_checkpoint.h5`.
+
 ### YAML Parameters
 By default, scripts load:
 - `configs/parameters.yaml` for model/DMRG settings

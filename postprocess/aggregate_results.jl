@@ -19,14 +19,12 @@ end
 const PREFERRED_SUMMARY_COLUMN_ORDER = [
     "campaign_name",
     "run_id",
-    "cfg_meta_run_name",
     "status",
     "convergence_status",
     "last_stored_sweep",
     "results_present",
     "evidence",
-    "schema_id",
-    "schema_version",
+    "cfg_meta_run_name",
     "cfg_lattice_L",
     "cfg_lattice_periodic",
     "cfg_initial_Na_total",
@@ -55,6 +53,8 @@ const PREFERRED_SUMMARY_COLUMN_ORDER = [
     "has_structure_factor",
     "has_triple_corr",
     "has_sampled_configs",
+    "schema_id",
+    "schema_version",
     "issues"
 ]
 
