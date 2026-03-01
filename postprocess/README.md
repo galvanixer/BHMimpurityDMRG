@@ -37,6 +37,31 @@ runs/<campaign_name>/Summary_<campaign_name>.csv
 
 Profiles are defined in `postprocess/extract_profile.yaml`.
 
+## Convergence report
+Use `check_convergence.jl` to summarize which runs converged.
+
+It uses this source priority:
+1. `results.h5:/diagnostics/dmrg/converged` (authoritative when present)
+2. `run.log` fallback markers (for legacy runs missing diagnostics)
+
+Examples:
+
+```bash
+./bin/check_convergence runs/<campaign_name>
+./bin/check_convergence runs
+```
+
+Default outputs:
+- Single campaign input: `runs/<campaign_name>/Convergence_<campaign_name>.csv`
+- Multi-campaign input: `runs/Convergence_all_campaigns.csv`
+
+The CSV contains tri-state `convergence_status`:
+- `converged`
+- `not_converged`
+- `unknown`
+
+It also includes `run_status` and `evidence` columns to explain classification.
+
 ## Output layout
 The JLD2 file contains:
 - `manifest`: aggregation config, discovered files, schema counts.

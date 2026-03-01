@@ -1,0 +1,399 @@
+# Author: Tanul Gupta <tanulgupta123@gmail.com>
+# License: MIT
+# Copyright (c) 2026 Tanul Gupta
+
+using CSV
+using DataFrames
+using HDF5
+
+const EARLY_STOP_MARKER = "Early stopping DMRG"
+const WROTE_RESULTS_MARKER = "Wrote results"
+const ERROR_PATTERNS = [
+    r"(?m)^ERROR:",
+    r"(?m)^Stacktrace:",
+    r"(?i)segmentation fault",
+    r"(?i)\bkilled\b"
+]
+
+function print_help(io::IO=stdout)
+    script = basename(@__FILE__)
+    println(io, "Usage:")
+    println(io, "  julia --startup-file=no --project=postprocess postprocess/$script [options] <campaign_root_or_runs_root> [output_csv]")
+    println(io, "")
+    println(io, "Options:")
+    println(io, "  --quiet                Reduce progress output")
+    println(io, "  -h, --help             Show this help")
+    println(io, "")
+    println(io, "Notes:")
+    println(io, "  - If <campaign_root_or_runs_root> points to one campaign directory, analyze that campaign.")
+    println(io, "  - Otherwise, analyze all immediate subdirectories that look like launch_campaign outputs.")
+    println(io, "  - Convergence source priority: results.h5 diagnostics first, run.log fallback second.")
+    println(io, "")
+    println(io, "Output columns include:")
+    println(io, "  campaign_name, run_id, convergence_status, run_status, evidence, and path fields.")
+    println(io, "")
+    println(io, "Examples:")
+    println(io, "  julia --startup-file=no --project=postprocess postprocess/$script runs/deep_mi_scan_22feb2026_v1")
+    println(io, "  ./bin/check_convergence runs")
+end
+
+function parse_args(args::Vector{String})
+    show_help = false
+    verbose = true
+    positional = String[]
+
+    i = 1
+    while i <= length(args)
+        a = args[i]
+        if a in ("-h", "--help")
+            show_help = true
+            i += 1
+        elseif a == "--quiet"
+            verbose = false
+            i += 1
+        elseif startswith(a, "--")
+            error("Unknown option: $a")
+        else
+            push!(positional, a)
+            i += 1
+        end
+    end
+
+    root = nothing
+    output_csv = nothing
+    if !isempty(positional)
+        root = positional[1]
+    end
+    if length(positional) >= 2
+        output_csv = positional[2]
+    end
+    if length(positional) > 2
+        error("Expected at most 2 positional arguments, got $(length(positional))")
+    end
+
+    return (
+        show_help=show_help,
+        verbose=verbose,
+        root=root,
+        output_csv=output_csv
+    )
+end
+
+@inline function clean_error(err)
+    return replace(sprint(showerror, err), '\n' => ' ')
+end
+
+@inline function looks_like_run_dir_name(name::AbstractString)
+    return occursin(r"^run_[0-9]+$", name)
+end
+
+function is_campaign_dir(path::AbstractString)
+    isdir(path) || return false
+    isfile(joinpath(path, "run_dirs.txt")) && return true
+    isfile(joinpath(path, "runs.csv")) && return true
+    for ent in readdir(path)
+        if looks_like_run_dir_name(ent) && isdir(joinpath(path, ent))
+            return true
+        end
+    end
+    return false
+end
+
+function discover_campaign_dirs(root::AbstractString)
+    root_abs = abspath(root)
+    isdir(root_abs) || error("Root is not a directory: $root_abs")
+
+    if is_campaign_dir(root_abs)
+        return [root_abs]
+    end
+
+    dirs = String[]
+    for ent in sort(readdir(root_abs))
+        p = joinpath(root_abs, ent)
+        isdir(p) || continue
+        is_campaign_dir(p) || continue
+        push!(dirs, p)
+    end
+
+    isempty(dirs) && error("No campaign directories found under: $root_abs")
+    return dirs
+end
+
+function parse_runs_csv(path::AbstractString)
+    out = String[]
+    try
+        for row in CSV.File(path)
+            if hasproperty(row, :run_dir)
+                rd = strip(String(getproperty(row, :run_dir)))
+                isempty(rd) || push!(out, rd)
+            end
+        end
+    catch err
+        @warn "Failed to parse runs.csv, will fallback to directory scan" path=path error=clean_error(err)
+    end
+    return out
+end
+
+function discover_run_dirs(campaign_dir::AbstractString)
+    run_dirs = String[]
+
+    run_dirs_txt = joinpath(campaign_dir, "run_dirs.txt")
+    if isfile(run_dirs_txt)
+        for ln in eachline(run_dirs_txt)
+            p = strip(ln)
+            isempty(p) && continue
+            push!(run_dirs, abspath(p))
+        end
+    end
+
+    if isempty(run_dirs)
+        runs_csv = joinpath(campaign_dir, "runs.csv")
+        if isfile(runs_csv)
+            append!(run_dirs, abspath.(parse_runs_csv(runs_csv)))
+        end
+    end
+
+    if isempty(run_dirs)
+        for ent in sort(readdir(campaign_dir))
+            looks_like_run_dir_name(ent) || continue
+            p = joinpath(campaign_dir, ent)
+            isdir(p) || continue
+            push!(run_dirs, abspath(p))
+        end
+    end
+
+    unique!(run_dirs)
+    sort!(run_dirs)
+    return run_dirs
+end
+
+function read_diagnostics_converged(results_path::AbstractString)
+    if !isfile(results_path)
+        return (
+            results_present=false,
+            diagnostics_present=false,
+            converged=nothing,
+            read_error=nothing
+        )
+    end
+
+    try
+        return HDF5.h5open(results_path, "r") do f
+            has_diag = haskey(f, "diagnostics") && haskey(f["diagnostics"], "dmrg")
+            if !has_diag
+                return (
+                    results_present=true,
+                    diagnostics_present=false,
+                    converged=nothing,
+                    read_error=nothing
+                )
+            end
+            g_dmrg = f["diagnostics"]["dmrg"]
+            if !haskey(g_dmrg, "converged")
+                return (
+                    results_present=true,
+                    diagnostics_present=true,
+                    converged=nothing,
+                    read_error=nothing
+                )
+            end
+            raw = read(g_dmrg["converged"])
+            val = if raw isa Bool
+                raw
+            elseif raw isa Integer
+                raw != 0
+            elseif raw isa AbstractString
+                lowercase(strip(raw)) in ("1", "true", "yes", "y", "on")
+            elseif raw isa AbstractArray && length(raw) == 1
+                x = first(raw)
+                x isa Bool ? x : (x isa Integer ? x != 0 : nothing)
+            else
+                nothing
+            end
+            return (
+                results_present=true,
+                diagnostics_present=true,
+                converged=val,
+                read_error=val === nothing ? "unparseable_diagnostics_converged" : nothing
+            )
+        end
+    catch err
+        return (
+            results_present=true,
+            diagnostics_present=false,
+            converged=nothing,
+            read_error=clean_error(err)
+        )
+    end
+end
+
+function read_log_signals(log_path::AbstractString)
+    if !isfile(log_path)
+        return (
+            log_present=false,
+            early_stop=false,
+            wrote_results=false,
+            has_error=false,
+            read_error=nothing
+        )
+    end
+
+    try
+        txt = read(log_path, String)
+        early_stop = occursin(EARLY_STOP_MARKER, txt)
+        wrote_results = occursin(WROTE_RESULTS_MARKER, txt)
+        has_error = any(p -> occursin(p, txt), ERROR_PATTERNS)
+        return (
+            log_present=true,
+            early_stop=early_stop,
+            wrote_results=wrote_results,
+            has_error=has_error,
+            read_error=nothing
+        )
+    catch err
+        return (
+            log_present=true,
+            early_stop=false,
+            wrote_results=false,
+            has_error=false,
+            read_error=clean_error(err)
+        )
+    end
+end
+
+function assess_run(campaign_name::AbstractString, run_dir::AbstractString)
+    run_id = basename(normpath(run_dir))
+    results_path = joinpath(run_dir, "results.h5")
+    log_path = joinpath(run_dir, "run.log")
+
+    diag = read_diagnostics_converged(results_path)
+    log = read_log_signals(log_path)
+
+    convergence_status = "unknown"
+    used_log_fallback = false
+    if diag.converged !== nothing
+        convergence_status = diag.converged ? "converged" : "not_converged"
+    elseif log.log_present && log.early_stop && !log.has_error
+        convergence_status = "converged"
+        used_log_fallback = true
+    end
+
+    run_status = "unknown"
+    if diag.converged !== nothing
+        run_status = "ok"
+    elseif log.has_error && !log.wrote_results
+        run_status = "failed"
+    elseif diag.results_present || log.wrote_results
+        run_status = "ok"
+    elseif !diag.results_present && !log.log_present
+        run_status = "missing"
+    end
+
+    evidence = String[]
+    if diag.converged !== nothing
+        push!(evidence, "results.h5:/diagnostics/dmrg/converged=$(diag.converged)")
+    elseif diag.results_present && diag.diagnostics_present
+        push!(evidence, "results.h5 has diagnostics but converged flag unavailable")
+    elseif diag.results_present
+        push!(evidence, "results.h5 missing diagnostics/dmrg")
+    else
+        push!(evidence, "results.h5 missing")
+    end
+
+    if log.log_present
+        log.early_stop && push!(evidence, "run.log contains '$EARLY_STOP_MARKER'")
+        log.wrote_results && push!(evidence, "run.log contains '$WROTE_RESULTS_MARKER'")
+        log.has_error && push!(evidence, "run.log contains error signature")
+    else
+        push!(evidence, "run.log missing")
+    end
+
+    diag.read_error !== nothing && push!(evidence, "results_read_error=$(diag.read_error)")
+    log.read_error !== nothing && push!(evidence, "log_read_error=$(log.read_error)")
+
+    return (
+        campaign_name=String(campaign_name),
+        run_id=String(run_id),
+        run_dir=String(abspath(run_dir)),
+        results_path=String(abspath(results_path)),
+        log_path=String(abspath(log_path)),
+        convergence_status=convergence_status,
+        run_status=run_status,
+        results_present=diag.results_present,
+        diagnostics_present=diag.diagnostics_present,
+        converged_from_diagnostics=diag.converged === nothing ? missing : diag.converged,
+        log_present=log.log_present,
+        log_early_stop=log.early_stop,
+        log_wrote_results=log.wrote_results,
+        log_has_error=log.has_error,
+        used_log_fallback=used_log_fallback,
+        evidence=join(evidence, "; ")
+    )
+end
+
+function default_output_path(root_abs::AbstractString, campaign_dirs::Vector{String})
+    if length(campaign_dirs) == 1
+        campaign_name = basename(normpath(campaign_dirs[1]))
+        return joinpath(campaign_dirs[1], "Convergence_$(campaign_name).csv")
+    end
+    return joinpath(root_abs, "Convergence_all_campaigns.csv")
+end
+
+function summarize(df::DataFrame; io::IO=stdout)
+    n_total = nrow(df)
+    n_converged = sum(df.convergence_status .== "converged")
+    n_not_converged = sum(df.convergence_status .== "not_converged")
+    n_unknown = sum(df.convergence_status .== "unknown")
+    n_failed = sum(df.run_status .== "failed")
+
+    println(io, "Runs analyzed        : $n_total")
+    println(io, "Converged            : $n_converged")
+    println(io, "Not converged        : $n_not_converged")
+    println(io, "Unknown convergence  : $n_unknown")
+    println(io, "Run failures         : $n_failed")
+end
+
+function main(args=ARGS)
+    opts = parse_args(args)
+    if opts.show_help
+        print_help()
+        return nothing
+    end
+    opts.root === nothing && error("campaign_root_or_runs_root is required. Use --help for usage.")
+
+    root_abs = abspath(opts.root)
+    campaign_dirs = discover_campaign_dirs(root_abs)
+    rows = NamedTuple[]
+
+    for campaign_dir in campaign_dirs
+        campaign_name = basename(normpath(campaign_dir))
+        run_dirs = discover_run_dirs(campaign_dir)
+        if isempty(run_dirs)
+            @warn "No run directories found in campaign" campaign_dir=campaign_dir
+            continue
+        end
+        for run_dir in run_dirs
+            push!(rows, assess_run(campaign_name, run_dir))
+        end
+    end
+
+    isempty(rows) && error("No runs found to analyze under: $root_abs")
+
+    df = DataFrame(rows)
+    sort!(df, [:campaign_name, :run_id])
+
+    out_path = opts.output_csv === nothing ? default_output_path(root_abs, campaign_dirs) : abspath(opts.output_csv)
+    mkpath(dirname(out_path))
+    CSV.write(out_path, df)
+
+    if opts.verbose
+        println("Campaign directories : $(length(campaign_dirs))")
+        summarize(df)
+        println("Output CSV           : $out_path")
+    end
+    return nothing
+end
+
+if abspath(PROGRAM_FILE) == @__FILE__
+    main()
+end
