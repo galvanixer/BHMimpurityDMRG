@@ -21,6 +21,7 @@ function print_help(io::IO=stdout)
     println(io, "  julia --startup-file=no --project=postprocess postprocess/$script [options] <campaign_root_or_runs_root> [output_csv]")
     println(io, "")
     println(io, "Options:")
+    println(io, "  --absolute-paths       Write absolute paths in CSV (default: relative to campaign)")
     println(io, "  --quiet                Reduce progress output")
     println(io, "  -h, --help             Show this help")
     println(io, "")
@@ -40,6 +41,7 @@ end
 function parse_args(args::Vector{String})
     show_help = false
     verbose = true
+    absolute_paths = false
     positional = String[]
 
     i = 1
@@ -47,6 +49,9 @@ function parse_args(args::Vector{String})
         a = args[i]
         if a in ("-h", "--help")
             show_help = true
+            i += 1
+        elseif a == "--absolute-paths"
+            absolute_paths = true
             i += 1
         elseif a == "--quiet"
             verbose = false
@@ -74,6 +79,7 @@ function parse_args(args::Vector{String})
     return (
         show_help=show_help,
         verbose=verbose,
+        absolute_paths=absolute_paths,
         root=root,
         output_csv=output_csv
     )
@@ -261,10 +267,17 @@ function read_log_signals(log_path::AbstractString)
     end
 end
 
-function assess_run(campaign_name::AbstractString, run_dir::AbstractString)
+function assess_run(
+    campaign_name::AbstractString,
+    campaign_dir::AbstractString,
+    run_dir::AbstractString;
+    absolute_paths::Bool=false
+)
+    campaign_dir_abs = abspath(campaign_dir)
+    run_dir_abs = abspath(run_dir)
     run_id = basename(normpath(run_dir))
-    results_path = joinpath(run_dir, "results.h5")
-    log_path = joinpath(run_dir, "run.log")
+    results_path = joinpath(run_dir_abs, "results.h5")
+    log_path = joinpath(run_dir_abs, "run.log")
 
     diag = read_diagnostics_converged(results_path)
     log = read_log_signals(log_path)
@@ -311,12 +324,16 @@ function assess_run(campaign_name::AbstractString, run_dir::AbstractString)
     diag.read_error !== nothing && push!(evidence, "results_read_error=$(diag.read_error)")
     log.read_error !== nothing && push!(evidence, "log_read_error=$(log.read_error)")
 
+    run_dir_out = absolute_paths ? run_dir_abs : relpath(run_dir_abs, campaign_dir_abs)
+    results_path_out = absolute_paths ? abspath(results_path) : relpath(results_path, campaign_dir_abs)
+    log_path_out = absolute_paths ? abspath(log_path) : relpath(log_path, campaign_dir_abs)
+
     return (
         campaign_name=String(campaign_name),
         run_id=String(run_id),
-        run_dir=String(abspath(run_dir)),
-        results_path=String(abspath(results_path)),
-        log_path=String(abspath(log_path)),
+        run_dir=String(run_dir_out),
+        results_path=String(results_path_out),
+        log_path=String(log_path_out),
         convergence_status=convergence_status,
         run_status=run_status,
         results_present=diag.results_present,
@@ -373,7 +390,7 @@ function main(args=ARGS)
             continue
         end
         for run_dir in run_dirs
-            push!(rows, assess_run(campaign_name, run_dir))
+            push!(rows, assess_run(campaign_name, campaign_dir, run_dir; absolute_paths=opts.absolute_paths))
         end
     end
 

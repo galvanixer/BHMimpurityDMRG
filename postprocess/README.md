@@ -49,6 +49,7 @@ Examples:
 ```bash
 ./bin/check_convergence runs/<campaign_name>
 ./bin/check_convergence runs
+./bin/check_convergence --absolute-paths runs/<campaign_name>
 ```
 
 Default outputs:
@@ -61,6 +62,8 @@ The CSV contains tri-state `convergence_status`:
 - `unknown`
 
 It also includes `run_status` and `evidence` columns to explain classification.
+Path columns (`run_dir`, `results_path`, `log_path`) are relative to the campaign by default.
+Use `--absolute-paths` to write absolute filesystem paths instead.
 
 ## Output layout
 The JLD2 file contains:
