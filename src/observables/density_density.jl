@@ -134,13 +134,26 @@ function connected_density_density_matrix(nvec::AbstractVector, nnmat::AbstractM
 end
 
 """
-    transl_avg_density_density(nvec, nnmat; periodic::Bool=false, max_r=nothing, fold_min_image::Bool=false)
+    transl_avg_density_density(
+        nvec,
+        nnmat;
+        periodic::Bool=false,
+        max_r=nothing,
+        fold_min_image::Bool=false,
+        edge_trim::Int=0
+    )
 
 Return translationally averaged two-point correlators over anchor site `i`:
 - `rvals`: displacement values `0:rmax`
 - `g`: raw average `G(r) = (1/N_r) Σ_i ⟨n_i n_{i+r}⟩`
 - `c`: connected average `C(r) = (1/N_r) Σ_i [⟨n_i n_{i+r}⟩ - ⟨n_i⟩⟨n_{i+r}⟩]`
 - `anchors`: number of valid anchors `N_r` for each `r`
+
+`edge_trim` excludes `edge_trim` sites on each edge from anchor selection
+for open boundaries. For OBC this corresponds to:
+`i ∈ [1 + edge_trim, L - edge_trim]`, with pair partner `j=i+r` also required
+to lie in the same interval. Thus for OBC the usable range is
+`r <= L - 1 - 2*edge_trim`.
 
 At `r=0`, the diagonal convention follows the input `nnmat`.
 If `fold_min_image=true` and `periodic=true`, displacements are folded with
@@ -151,13 +164,20 @@ function transl_avg_density_density(
     nnmat::AbstractMatrix;
     periodic::Bool=false,
     max_r::Union{Int,Nothing}=nothing,
-    fold_min_image::Bool=false
+    fold_min_image::Bool=false,
+    edge_trim::Int=0
 )
     L = length(nvec)
     size(nnmat, 1) == L && size(nnmat, 2) == L ||
         throw(ArgumentError("nnmat must be LxL with L=length(nvec)"))
+    edge_trim >= 0 || throw(ArgumentError("edge_trim must be >= 0"))
+    periodic && edge_trim > 0 &&
+        throw(ArgumentError("edge_trim > 0 is only supported for periodic=false"))
+    !periodic && (2 * edge_trim >= L) &&
+        throw(ArgumentError("edge_trim too large for L=$L; require 2*edge_trim < L"))
 
-    rmax = max_r === nothing ? (L - 1) : min(max_r, L - 1)
+    rmax_limit = periodic ? (L - 1) : (L - 1 - 2 * edge_trim)
+    rmax = max_r === nothing ? rmax_limit : min(max_r, rmax_limit)
     if fold_min_image && periodic
         rvals = sort(unique([min_image(r, L) for r in 0:rmax]))
     else
@@ -171,9 +191,14 @@ function transl_avg_density_density(
         acc_g = 0.0
         acc_c = 0.0
         n = 0
-        for i in 1:L
+        i_min = periodic ? 1 : (1 + edge_trim)
+        i_max = periodic ? L : (L - edge_trim)
+        for i in i_min:i_max
             j = shifted_site(i, r, L; periodic=periodic)
             j === nothing && continue
+            if !periodic && (j < i_min || j > i_max)
+                continue
+            end
             v = nnmat[i, j]
             acc_g += v
             acc_c += v - nvec[i] * nvec[j]

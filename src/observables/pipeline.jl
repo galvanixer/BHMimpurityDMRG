@@ -6,7 +6,7 @@
 # Centralized observables compute/write pipeline
 # ----------------------------
 
-const OBSERVABLES_SCHEMA_VERSION = "1.0.0"
+const OBSERVABLES_SCHEMA_VERSION = "1.1.0"
 
 """
     _cfg_get(d, key, default=nothing)
@@ -71,6 +71,89 @@ function _parse_species(species, section_name::String)
     end
     error("$section_name.species must be one of: \"a\", \"b\", \"both\"")
 end
+
+@inline function _parse_nonnegative_int(x, field_name::String)
+    v = Int(x)
+    v >= 0 || error("$field_name must be >= 0")
+    return v
+end
+
+"""
+    _parse_edge_trims(dd_cfg, periodic::Bool)
+
+Resolve density-density edge trimming configuration.
+Accepted forms:
+- `edge_trim: <int>`
+- `edge_trims: [<int>, ...]`
+
+If neither is provided, defaults to `[0]`.
+"""
+function _parse_edge_trims(dd_cfg::AbstractDict, periodic::Bool)
+    raw_many = _cfg_get(dd_cfg, "edge_trims", nothing)
+    raw_one = _cfg_get(dd_cfg, "edge_trim", nothing)
+
+    trims = Int[]
+    if raw_many !== nothing
+        if raw_many isa AbstractVector
+            for v in raw_many
+                push!(trims, _parse_nonnegative_int(v, "observables.density_density.edge_trims"))
+            end
+        else
+            push!(trims, _parse_nonnegative_int(raw_many, "observables.density_density.edge_trims"))
+        end
+    elseif raw_one !== nothing
+        push!(trims, _parse_nonnegative_int(raw_one, "observables.density_density.edge_trim"))
+    else
+        push!(trims, 0)
+    end
+
+    isempty(trims) && error("observables.density_density.edge_trims must not be empty")
+    sort!(trims)
+    unique!(trims)
+
+    if periodic && any(t -> t > 0, trims)
+        error("observables.density_density.edge_trim(s) > 0 are only supported when periodic=false")
+    end
+    return trims
+end
+
+function _compute_density_profiles(
+    nvec::AbstractVector,
+    nnmat::AbstractMatrix;
+    periodic::Bool,
+    max_r::Union{Int,Nothing},
+    fold_min_image::Bool,
+    edge_trims::Vector{Int}
+)
+    profiles = NamedTuple[]
+    for edge_trim in edge_trims
+        r, g, c, anchors = transl_avg_density_density(
+            nvec,
+            nnmat;
+            periodic=periodic,
+            max_r=max_r,
+            fold_min_image=fold_min_image,
+            edge_trim=edge_trim
+        )
+        push!(profiles, (
+            edge_trim=edge_trim,
+            r=r,
+            transl_avg_nn=g,
+            transl_avg_connected_nn=c,
+            anchors=anchors
+        ))
+    end
+    return profiles
+end
+
+function _default_density_profile(profiles, default_edge_trim::Int)
+    for p in profiles
+        p.edge_trim == default_edge_trim && return p
+    end
+    return isempty(profiles) ? nothing : first(profiles)
+end
+
+@inline _edge_trim_group_name(edge_trim::Int) = "trim_" * lpad(string(edge_trim), 4, '0')
 
 """
     _resolve_triple_pairs(tc_cfg, L)
@@ -176,6 +259,8 @@ function compute_observables(
     max_r = _cfg_get(dd_cfg, "max_r", nothing)
     max_r = max_r === nothing ? nothing : Int(max_r)
     fold_min_image = _parse_bool(_cfg_get(dd_cfg, "fold_min_image", false), false)
+    edge_trims = _parse_edge_trims(dd_cfg, periodic_eff)
+    default_edge_trim = (0 in edge_trims) ? 0 : first(edge_trims)
 
     needed_ops = union(dd_species, sf_species)
     nvec_a = nothing
@@ -210,33 +295,49 @@ function compute_observables(
     g_a = nothing
     c_a = nothing
     anchors_a = nothing
+    profiles_a = nothing
     cnn_b = nothing
     r_b = nothing
     g_b = nothing
     c_b = nothing
     anchors_b = nothing
+    profiles_b = nothing
     if compute_density_density
         if "Na" in dd_species
             progress && println("Evaluating observable: density_density (species=a)")
             cnn_a = connected_density_density_matrix(nvec_a, nn_a)
-            r_a, g_a, c_a, anchors_a = transl_avg_density_density(
+            profiles_a = _compute_density_profiles(
                 nvec_a,
                 nn_a;
                 periodic=periodic_eff,
                 max_r=max_r,
-                fold_min_image=fold_min_image
+                fold_min_image=fold_min_image,
+                edge_trims=edge_trims
             )
+            prof_a = _default_density_profile(profiles_a, default_edge_trim)
+            prof_a === nothing && error("No density-density profile computed for species=a")
+            r_a = prof_a.r
+            g_a = prof_a.transl_avg_nn
+            c_a = prof_a.transl_avg_connected_nn
+            anchors_a = prof_a.anchors
         end
         if "Nb" in dd_species
             progress && println("Evaluating observable: density_density (species=b)")
             cnn_b = connected_density_density_matrix(nvec_b, nn_b)
-            r_b, g_b, c_b, anchors_b = transl_avg_density_density(
+            profiles_b = _compute_density_profiles(
                 nvec_b,
                 nn_b;
                 periodic=periodic_eff,
                 max_r=max_r,
-                fold_min_image=fold_min_image
+                fold_min_image=fold_min_image,
+                edge_trims=edge_trims
             )
+            prof_b = _default_density_profile(profiles_b, default_edge_trim)
+            prof_b === nothing && error("No density-density profile computed for species=b")
+            r_b = prof_b.r
+            g_b = prof_b.transl_avg_nn
+            c_b = prof_b.transl_avg_connected_nn
+            anchors_b = prof_b.anchors
         end
     elseif progress
         println("Skipping observable: density_density (not requested)")
@@ -358,18 +459,22 @@ function compute_observables(
         density_density=(
             requested=compute_density_density,
             same_site_convention=same_site_convention,
+            edge_trims=edge_trims,
+            default_edge_trim=default_edge_trim,
             nn_a=nn_a,
             connected_nn_a=cnn_a,
             r_a=r_a,
             transl_avg_nn_a=g_a,
             transl_avg_connected_nn_a=c_a,
             anchors_a=anchors_a,
+            profiles_a=profiles_a,
             nn_b=nn_b,
             connected_nn_b=cnn_b,
             r_b=r_b,
             transl_avg_nn_b=g_b,
             transl_avg_connected_nn_b=c_b,
-            anchors_b=anchors_b
+            anchors_b=anchors_b,
+            profiles_b=profiles_b
         ),
         structure_factor=(
             requested=compute_structure_factor,
@@ -404,6 +509,22 @@ Used to prevent stale observables datasets across rewrites.
     return HDF5.create_group(parent, name)
 end
 
+function _write_density_profiles!(g_profiles, profiles, species::String)
+    profiles === nothing && return nothing
+    isempty(profiles) && return nothing
+
+    g_species = HDF5.create_group(g_profiles, species)
+    for p in profiles
+        g_trim = HDF5.create_group(g_species, _edge_trim_group_name(Int(p.edge_trim)))
+        write_or_replace(g_trim, "edge_trim", Int(p.edge_trim))
+        write_or_replace(g_trim, "r", p.r)
+        write_or_replace(g_trim, "transl_avg_nn", p.transl_avg_nn)
+        write_or_replace(g_trim, "transl_avg_connected_nn", p.transl_avg_connected_nn)
+        write_or_replace(g_trim, "anchors", p.anchors)
+    end
+    return nothing
+end
+
 """
     write_observables_hdf5!(f, obs; schema_version=OBSERVABLES_SCHEMA_VERSION)
 
@@ -433,6 +554,8 @@ function write_observables_hdf5!(f, obs; schema_version::AbstractString=OBSERVAB
     if dd.requested
         g_dd = HDF5.create_group(g_obs, "density_density")
         write_or_replace(g_dd, "same_site_convention", dd.same_site_convention)
+        write_or_replace(g_dd, "edge_trims", dd.edge_trims)
+        write_or_replace(g_dd, "default_edge_trim", dd.default_edge_trim)
         if dd.nn_a !== nothing
             write_or_replace(g_dd, "nn_a", dd.nn_a)
             write_or_replace(g_dd, "connected_nn_a", dd.connected_nn_a)
@@ -448,6 +571,12 @@ function write_observables_hdf5!(f, obs; schema_version::AbstractString=OBSERVAB
             write_or_replace(g_dd, "transl_avg_nn_b", dd.transl_avg_nn_b)
             write_or_replace(g_dd, "transl_avg_connected_nn_b", dd.transl_avg_connected_nn_b)
             write_or_replace(g_dd, "anchors_b", dd.anchors_b)
+        end
+        if (dd.profiles_a !== nothing && !isempty(dd.profiles_a)) ||
+           (dd.profiles_b !== nothing && !isempty(dd.profiles_b))
+            g_profiles = HDF5.create_group(g_dd, "profiles")
+            _write_density_profiles!(g_profiles, dd.profiles_a, "a")
+            _write_density_profiles!(g_profiles, dd.profiles_b, "b")
         end
     end
 

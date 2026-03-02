@@ -101,6 +101,20 @@ N_r = |A_r|
 
 returned as `anchors`.
 
+With OBC and `edge_trim=t`, anchors are restricted to the bulk window:
+
+```math
+i \in \{1+t,\dots,L-t\},\quad j=i+r \in \{1+t,\dots,L-t\}
+```
+
+so the effective anchor count is:
+
+```math
+N_r = L-r-2t
+```
+
+and only displacements with $N_r>0$ are included.
+
 Boundary handling (`shifted_site`):
 
 - `periodic=false`: include only if $1 \le i+r \le L$

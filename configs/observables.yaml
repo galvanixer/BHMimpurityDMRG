@@ -14,6 +14,8 @@ observables:
     ishermitian: true          # If true, use Hermitian symmetry optimization in correlation_matrix backend
     max_r: 6                   # Correlator distances r in [0, max_r]; if omitted, uses [0, L-1]
     fold_min_image: false      # If true with periodic lattice, fold r using minimum-image convention
+    edge_trim: 0               # OBC only: drop this many sites from each edge when averaging over anchors
+    # edge_trims: [0, 2, 4]    # Optional OBC-only multi-profile mode; supersedes edge_trim when set
     same_site_convention: "factorial"  # "factorial" => n(n-1) on i=j, "plain" => n^2 on i=j
 
   structure_factor:
