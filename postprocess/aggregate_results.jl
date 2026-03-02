@@ -23,6 +23,7 @@ const PREFERRED_SUMMARY_COLUMN_ORDER = [
     "convergence_status",
     "last_stored_sweep",
     "results_present",
+    "results_source",
     "evidence",
     "cfg_meta_run_name",
     "cfg_lattice_L",
@@ -169,6 +170,57 @@ function discover_results_files(campaign_root::AbstractString, pattern::Regex)
     end
     sort!(files)
     return files
+end
+
+function group_results_files_by_run_dir(results_files::Vector{String})
+    grouped = Dict{String,Vector{String}}()
+    for path in results_files
+        run_dir = dirname(abspath(path))
+        if !haskey(grouped, run_dir)
+            grouped[run_dir] = String[]
+        end
+        push!(grouped[run_dir], abspath(path))
+    end
+    for paths in values(grouped)
+        sort!(paths)
+    end
+    return grouped
+end
+
+function pick_preferred_checkpoint_results(run_dir::AbstractString, run_files::Vector{String})
+    preferred_names = ("results_from_checkpoint.h5", "results_checkpoint.h5")
+    for name in preferred_names
+        p = joinpath(run_dir, name)
+        if p in run_files
+            return p
+        end
+    end
+
+    for p in run_files
+        if occursin("checkpoint", lowercase(basename(p)))
+            return p
+        end
+    end
+    return nothing
+end
+
+function select_results_file_for_run(run_dir::AbstractString, run_files::Vector{String}, conv)
+    main_results = joinpath(run_dir, "results.h5")
+    has_main = main_results in run_files
+    checkpoint_results = pick_preferred_checkpoint_results(run_dir, run_files)
+    is_converged = getproperty(conv, :convergence_status) == "converged"
+
+    # Policy: converged runs use canonical results.h5; otherwise prefer checkpoint-derived results.
+    if is_converged && has_main
+        return (path=main_results, source="results.h5")
+    end
+    if checkpoint_results !== nothing
+        return (path=checkpoint_results, source=basename(checkpoint_results))
+    end
+    if has_main
+        return (path=main_results, source="results.h5")
+    end
+    return (path=run_files[1], source=basename(run_files[1]))
 end
 
 function derive_candidate_run_id(campaign_root::AbstractString, results_path::AbstractString, idx::Int)
@@ -353,21 +405,38 @@ function aggregate_results(
     isdir(campaign_root_abs) || error("Campaign root is not a directory: $campaign_root_abs")
     campaign_name = basename(normpath(campaign_root_abs))
 
-    results_files = discover_results_files(campaign_root_abs, pattern)
-    isempty(results_files) && error("No results files found under $campaign_root_abs matching regex: $(pattern.pattern)")
+    all_results_files = discover_results_files(campaign_root_abs, pattern)
+    isempty(all_results_files) && error("No results files found under $campaign_root_abs matching regex: $(pattern.pattern)")
 
-    run_ids = build_unique_run_ids(campaign_root_abs, results_files)
+    files_by_run_dir = group_results_files_by_run_dir(all_results_files)
+    run_dirs = sort!(collect(keys(files_by_run_dir)))
+
+    selected_paths = String[]
+    selected_sources = String[]
+    selected_convergence = Any[]
+    for run_dir in run_dirs
+        conv = assess_run(campaign_name, run_dir)
+        selection = select_results_file_for_run(run_dir, files_by_run_dir[run_dir], conv)
+        push!(selected_paths, selection.path)
+        push!(selected_sources, selection.source)
+        push!(selected_convergence, conv)
+    end
+
+    run_ids = build_unique_run_ids(campaign_root_abs, selected_paths)
     runs = Dict{String,Any}()
     summary_rows = Vector{Dict{String,Any}}()
     schema_counts = Dict{String,Int}()
     n_success = 0
     n_error = 0
 
-    for (idx, (run_id, path)) in enumerate(zip(run_ids, results_files))
-        verbose && println("[$idx/$(length(results_files))] Parsing $(abspath(path))")
+    for idx in eachindex(run_ids)
+        run_id = run_ids[idx]
+        path = selected_paths[idx]
+        source = selected_sources[idx]
+        verbose && println("[$idx/$(length(selected_paths))] Parsing $(abspath(path))")
         abs_path = abspath(path)
         run_dir = dirname(abs_path)
-        conv = assess_run(campaign_name, run_dir)
+        conv = selected_convergence[idx]
         try
             parsed = parse_results_file(abs_path; profile=profile)
             schema = get(parsed, "schema", Dict{String,Any}())
@@ -385,6 +454,7 @@ function aggregate_results(
                 "summary" => get(parsed, "summary", Dict{String,Any}()),
                 "observables" => get(parsed, "observables", Dict{String,Any}()),
                 "issues" => get(parsed, "issues", String[]),
+                "results_source" => source,
                 "convergence" => conv,
                 "status" => "ok"
             )
@@ -396,6 +466,7 @@ function aggregate_results(
             row["run_id"] = run_id
             row["status"] = "ok"
             row["issues"] = run_record["issues"]
+            row["results_source"] = source
             add_convergence_row_fields!(row, conv)
             push!(summary_rows, row)
             n_success += 1
@@ -406,7 +477,8 @@ function aggregate_results(
                 "run_id" => run_id,
                 "status" => "error",
                 "error" => err_msg,
-                "issues" => ["parser_exception"]
+                "issues" => ["parser_exception"],
+                "results_source" => source
             )
             add_convergence_row_fields!(row, conv)
             push!(summary_rows, row)
@@ -414,6 +486,7 @@ function aggregate_results(
                 "run_id" => run_id,
                 "results_path" => abs_path,
                 "run_dir" => run_dir,
+                "results_source" => source,
                 "convergence" => conv,
                 "status" => "error",
                 "error" => err_msg
@@ -441,11 +514,14 @@ function aggregate_results(
         "profile_name" => profile_name,
         "profile" => profile,
         "results_file_pattern" => pattern.pattern,
-        "n_discovered" => length(results_files),
+        "n_discovered_files" => length(all_results_files),
+        "n_selected_runs" => length(selected_paths),
         "n_success" => n_success,
         "n_error" => n_error,
         "schema_counts" => schema_counts,
-        "results_files" => abspath.(results_files)
+        "results_files" => abspath.(all_results_files),
+        "selected_results_files" => abspath.(selected_paths),
+        "selection_policy" => "run-level selection: converged->results.h5, else prefer results_from_checkpoint.h5/results_checkpoint.h5"
     )
 
     mkpath(dirname(abspath(output_path)))
@@ -459,7 +535,8 @@ function aggregate_results(
         output_path=abspath(output_path),
         summary_arrow_path=table_paths.arrow_path,
         summary_csv_path=table_paths.csv_path,
-        n_discovered=length(results_files),
+        n_discovered=length(selected_paths),
+        n_discovered_files=length(all_results_files),
         n_success=n_success,
         n_error=n_error,
         schema_counts=schema_counts
@@ -504,7 +581,7 @@ function main()
     println("Wrote aggregate: $(result.output_path)")
     println("Wrote summary arrow: $(result.summary_arrow_path)")
     println("Wrote summary csv: $(result.summary_csv_path)")
-    println("Runs discovered: $(result.n_discovered), parsed: $(result.n_success), errors: $(result.n_error)")
+    println("Runs discovered: $(result.n_discovered), results files discovered: $(result.n_discovered_files), parsed: $(result.n_success), errors: $(result.n_error)")
     return nothing
 end
 

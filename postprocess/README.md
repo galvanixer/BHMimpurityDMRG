@@ -6,6 +6,9 @@ Campaign-level aggregation utilities live here so the core `src/` DMRG code stay
 - Read many per-run `results.h5` files (for example `runs/<campaign>/run_XXXX/results.h5`).
 - Aggregate key metadata and observables into a single `all_results.jld2`.
 - Keep parser dispatch schema-aware via `/meta/results_schema_id` and `/meta/results_schema_version`.
+- Apply run-level results selection:
+  - if run is `converged`, aggregate `results.h5`
+  - otherwise prefer `results_from_checkpoint.h5` (fallback: `results_checkpoint.h5`), if present
 
 ## Usage
 From repository root:
@@ -113,6 +116,8 @@ The JLD2 file contains:
 - `manifest`: aggregation config, discovered files, schema counts.
 - `summary`: one dictionary row per run (good for quick filtering/plot prep).
 - `runs`: per-run detailed records (`meta`, selected `observables`, `issues`).
+
+Summary rows include `results_source` to show which file was selected per run.
 
 Tabular exports:
 - `*_summary.arrow`: typed columnar table for fast filtering/analysis.
