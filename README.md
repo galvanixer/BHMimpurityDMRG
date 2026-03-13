@@ -128,6 +128,7 @@ Example `observables.yaml`:
 observables:
   density_density:
     species: "both"
+    cross_species: true
     max_r: 6
     fold_min_image: false
     same_site_convention: "factorial"
@@ -149,6 +150,9 @@ observables:
     seed: 123
     write_decoded_occupations: true
 ```
+
+For the philosophy and evaluation details of the single-particle density matrix, see
+`src/observables/docs/single_particle_density_matrix.md`.
 
 Binding energy config example:
 ```yaml

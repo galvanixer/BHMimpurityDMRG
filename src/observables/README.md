@@ -15,7 +15,7 @@ Expectation value:
 \langle O \rangle = \langle \psi | O | \psi \rangle
 ```
 
-All formulas below are for one chosen `opname` at a time.
+Unless noted otherwise, the formulas below are for one chosen `opname` at a time.
 
 ## 1. One-point densities
 
@@ -34,7 +34,10 @@ n_b[i] = \langle n_i^{(b)} \rangle
 
 ## 2. Two-point density correlators
 
-Implemented by `density_density_matrix`.
+Implemented by `density_density_matrix` and `cross_density_density_matrix`.
+
+For the design rationale, diagonal-convention policy, and storage philosophy behind this
+observable family, see `docs/density_density.md`.
 
 For $i \neq j$:
 
@@ -62,6 +65,25 @@ One-point vector:
 \mathrm{nvec}_i = \langle n_i \rangle
 ```
 
+### Cross-species matrix
+
+Implemented by `cross_density_density_matrix`.
+
+For species `a` on the left and species `b` on the right:
+
+```math
+\mathrm{nnmat}^{(ab)}_{ij} = \langle n^{(a)}_i n^{(b)}_j \rangle
+```
+
+including on the diagonal:
+
+```math
+\mathrm{nnmat}^{(ab)}_{ii} = \langle n^{(a)}_i n^{(b)}_i \rangle.
+```
+
+Unlike the same-species case, there is no separate `"plain"` versus `"factorial"`
+convention for the cross-species diagonal.
+
 ### Connected two-point matrix
 
 Implemented by `connected_density_density_matrix`.
@@ -78,9 +100,29 @@ C_{ii} = \langle n_i(n_i-1)\rangle - \langle n_i \rangle^2
 
 which is not the usual variance.
 
+For the mixed-species matrix, the connected version is
+
+```math
+C^{(ab)}_{ij} = \langle n^{(a)}_i n^{(b)}_j \rangle - \langle n^{(a)}_i \rangle \langle n^{(b)}_j \rangle.
+```
+
+### Local number fluctuation
+
+Implemented by `local_density_variance` and stored as `variance_a` / `variance_b`
+inside the `/observables/density_density` group.
+
+The stored quantity is always the physical on-site variance
+
+```math
+\mathrm{Var}(n_i) = \langle n_i^2 \rangle - \langle n_i \rangle^2
+```
+
+independent of whether `nnmat[i,i]` was stored with the `"plain"` or `"factorial"`
+same-site convention.
+
 ## 3. Translational averages in displacement space
 
-Implemented by `transl_avg_density_density`.
+Implemented by `transl_avg_density_density` and `transl_avg_density_density_pair`.
 
 For displacement $r$, define anchors $A_r$ as sites where $j=i+r$ is valid (open BC) or wrapped (periodic BC):
 
@@ -121,6 +163,19 @@ Boundary handling (`shifted_site`):
 - `periodic=true`: wrap with `mod1(i+r, L)`
 
 If `fold_min_image=true` with periodic BC, `r` values are folded by `min_image(r, L)` before averaging.
+
+For the mixed-species case, the same averaging pattern is used with
+
+```math
+G^{(ab)}(r) = \frac{1}{N_r}\sum_{i\in A_r} \langle n^{(a)}_i n^{(b)}_{i+r}\rangle
+```
+
+and
+
+```math
+C^{(ab)}(r) = \frac{1}{N_r}\sum_{i\in A_r}
+\left[\langle n^{(a)}_i n^{(b)}_{i+r}\rangle - \langle n^{(a)}_i\rangle\langle n^{(b)}_{i+r}\rangle\right].
+```
 
 ## 4. Static structure factor
 
@@ -265,6 +320,9 @@ $N_{r,s}$ is the number of valid anchors returned by these functions.
 ## 7. Single-particle density matrix
 
 Implemented by `single_particle_density_matrix`.
+
+For the design rationale, storage policy, and interpretation philosophy behind this
+observable, see `docs/single_particle_density_matrix.md`.
 
 For each species separately, the code evaluates:
 

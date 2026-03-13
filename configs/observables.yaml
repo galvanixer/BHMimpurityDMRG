@@ -10,6 +10,7 @@ observables:
 
   density_density:
     species: "both"            # "a", "b", or "both"
+    cross_species: true        # If true, also compute <Na_i Nb_j> and its connected counterpart
     backend: "correlation_matrix"  # "correlation_matrix" (fast) or "legacy" (MPO-per-pair)
     ishermitian: true          # If true, use Hermitian symmetry optimization in correlation_matrix backend
     max_r: 6                   # Correlator distances r in [0, max_r]; if omitted, uses [0, L-1]

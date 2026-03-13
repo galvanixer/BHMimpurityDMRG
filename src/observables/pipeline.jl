@@ -6,7 +6,7 @@
 # Centralized observables compute/write pipeline
 # ----------------------------
 
-const OBSERVABLES_SCHEMA_VERSION = "1.2.0"
+const OBSERVABLES_SCHEMA_VERSION = "1.4.0"
 
 """
     _cfg_get(d, key, default=nothing)
@@ -120,15 +120,18 @@ end
 function _compute_density_profiles(
     nvec::AbstractVector,
     nnmat::AbstractMatrix;
+    nvec_right::Union{Nothing,AbstractVector}=nothing,
     periodic::Bool,
     max_r::Union{Int,Nothing},
     fold_min_image::Bool,
     edge_trims::Vector{Int}
 )
     profiles = NamedTuple[]
+    right = nvec_right === nothing ? nvec : nvec_right
     for edge_trim in edge_trims
-        r, g, c, anchors = transl_avg_density_density(
+        r, g, c, anchors = transl_avg_density_density_pair(
             nvec,
+            right,
             nnmat;
             periodic=periodic,
             max_r=max_r,
@@ -262,6 +265,7 @@ function compute_observables(
     sf_factorial_diagonal = (same_site_convention == "factorial")
     dd_backend = lowercase(String(_cfg_get(dd_cfg, "backend", "correlation_matrix")))
     dd_ishermitian = _parse_bool(_cfg_get(dd_cfg, "ishermitian", true), true)
+    dd_cross_species = _parse_bool(_cfg_get(dd_cfg, "cross_species", false), false)
     spdm_backend = lowercase(String(_cfg_get(spdm_cfg, "backend", "correlation_matrix")))
     spdm_ishermitian = _parse_bool(_cfg_get(spdm_cfg, "ishermitian", true), true)
     max_r = _cfg_get(dd_cfg, "max_r", nothing)
@@ -271,6 +275,9 @@ function compute_observables(
     default_edge_trim = (0 in edge_trims) ? 0 : first(edge_trims)
 
     needed_ops = union(dd_species, sf_species)
+    if compute_density_density && dd_cross_species
+        needed_ops = union(needed_ops, ["Na", "Nb"])
+    end
     nvec_a = nothing
     nn_a = nothing
     nvec_b = nothing
@@ -304,16 +311,30 @@ function compute_observables(
     c_a = nothing
     anchors_a = nothing
     profiles_a = nothing
+    variance_a = nothing
     cnn_b = nothing
     r_b = nothing
     g_b = nothing
     c_b = nothing
     anchors_b = nothing
     profiles_b = nothing
+    variance_b = nothing
+    nn_ab = nothing
+    connected_nn_ab = nothing
+    r_ab = nothing
+    g_ab = nothing
+    c_ab = nothing
+    anchors_ab = nothing
+    profiles_ab = nothing
     if compute_density_density
         if "Na" in dd_species
             progress && println("Evaluating observable: density_density (species=a)")
             cnn_a = connected_density_density_matrix(nvec_a, nn_a)
+            variance_a = local_density_variance(
+                nvec_a,
+                nn_a;
+                same_site_convention=same_site_convention
+            )
             profiles_a = _compute_density_profiles(
                 nvec_a,
                 nn_a;
@@ -332,6 +353,11 @@ function compute_observables(
         if "Nb" in dd_species
             progress && println("Evaluating observable: density_density (species=b)")
             cnn_b = connected_density_density_matrix(nvec_b, nn_b)
+            variance_b = local_density_variance(
+                nvec_b,
+                nn_b;
+                same_site_convention=same_site_convention
+            )
             profiles_b = _compute_density_profiles(
                 nvec_b,
                 nn_b;
@@ -346,6 +372,33 @@ function compute_observables(
             g_b = prof_b.transl_avg_nn
             c_b = prof_b.transl_avg_connected_nn
             anchors_b = prof_b.anchors
+        end
+        if dd_cross_species
+            progress && println("Evaluating observable: density_density (species=ab)")
+            nn_ab = cross_density_density_matrix(
+                psi,
+                sites,
+                "Na",
+                "Nb";
+                backend=dd_backend,
+                ishermitian=false
+            )
+            connected_nn_ab = connected_cross_density_density_matrix(na_v, nb_v, nn_ab)
+            profiles_ab = _compute_density_profiles(
+                na_v,
+                nn_ab;
+                periodic=periodic_eff,
+                max_r=max_r,
+                fold_min_image=fold_min_image,
+                edge_trims=edge_trims,
+                nvec_right=nb_v
+            )
+            prof_ab = _default_density_profile(profiles_ab, default_edge_trim)
+            prof_ab === nothing && error("No density-density profile computed for species=ab")
+            r_ab = prof_ab.r
+            g_ab = prof_ab.transl_avg_nn
+            c_ab = prof_ab.transl_avg_connected_nn
+            anchors_ab = prof_ab.anchors
         end
     elseif progress
         println("Skipping observable: density_density (not requested)")
@@ -498,6 +551,7 @@ function compute_observables(
             default_edge_trim=default_edge_trim,
             nn_a=nn_a,
             connected_nn_a=cnn_a,
+            variance_a=variance_a,
             r_a=r_a,
             transl_avg_nn_a=g_a,
             transl_avg_connected_nn_a=c_a,
@@ -505,11 +559,20 @@ function compute_observables(
             profiles_a=profiles_a,
             nn_b=nn_b,
             connected_nn_b=cnn_b,
+            variance_b=variance_b,
             r_b=r_b,
             transl_avg_nn_b=g_b,
             transl_avg_connected_nn_b=c_b,
             anchors_b=anchors_b,
-            profiles_b=profiles_b
+            profiles_b=profiles_b,
+            cross_species=dd_cross_species,
+            nn_ab=nn_ab,
+            connected_nn_ab=connected_nn_ab,
+            r_ab=r_ab,
+            transl_avg_nn_ab=g_ab,
+            transl_avg_connected_nn_ab=c_ab,
+            anchors_ab=anchors_ab,
+            profiles_ab=profiles_ab
         ),
         structure_factor=(
             requested=compute_structure_factor,
@@ -597,9 +660,11 @@ function write_observables_hdf5!(f, obs; schema_version::AbstractString=OBSERVAB
         write_or_replace(g_dd, "same_site_convention", dd.same_site_convention)
         write_or_replace(g_dd, "edge_trims", dd.edge_trims)
         write_or_replace(g_dd, "default_edge_trim", dd.default_edge_trim)
+        write_or_replace(g_dd, "cross_species", Bool(dd.cross_species))
         if dd.nn_a !== nothing
             write_or_replace(g_dd, "nn_a", dd.nn_a)
             write_or_replace(g_dd, "connected_nn_a", dd.connected_nn_a)
+            write_or_replace(g_dd, "variance_a", dd.variance_a)
             write_or_replace(g_dd, "r_a", dd.r_a)
             write_or_replace(g_dd, "transl_avg_nn_a", dd.transl_avg_nn_a)
             write_or_replace(g_dd, "transl_avg_connected_nn_a", dd.transl_avg_connected_nn_a)
@@ -608,16 +673,27 @@ function write_observables_hdf5!(f, obs; schema_version::AbstractString=OBSERVAB
         if dd.nn_b !== nothing
             write_or_replace(g_dd, "nn_b", dd.nn_b)
             write_or_replace(g_dd, "connected_nn_b", dd.connected_nn_b)
+            write_or_replace(g_dd, "variance_b", dd.variance_b)
             write_or_replace(g_dd, "r_b", dd.r_b)
             write_or_replace(g_dd, "transl_avg_nn_b", dd.transl_avg_nn_b)
             write_or_replace(g_dd, "transl_avg_connected_nn_b", dd.transl_avg_connected_nn_b)
             write_or_replace(g_dd, "anchors_b", dd.anchors_b)
         end
+        if dd.nn_ab !== nothing
+            write_or_replace(g_dd, "nn_ab", dd.nn_ab)
+            write_or_replace(g_dd, "connected_nn_ab", dd.connected_nn_ab)
+            write_or_replace(g_dd, "r_ab", dd.r_ab)
+            write_or_replace(g_dd, "transl_avg_nn_ab", dd.transl_avg_nn_ab)
+            write_or_replace(g_dd, "transl_avg_connected_nn_ab", dd.transl_avg_connected_nn_ab)
+            write_or_replace(g_dd, "anchors_ab", dd.anchors_ab)
+        end
         if (dd.profiles_a !== nothing && !isempty(dd.profiles_a)) ||
-           (dd.profiles_b !== nothing && !isempty(dd.profiles_b))
+           (dd.profiles_b !== nothing && !isempty(dd.profiles_b)) ||
+           (dd.profiles_ab !== nothing && !isempty(dd.profiles_ab))
             g_profiles = HDF5.create_group(g_dd, "profiles")
             _write_density_profiles!(g_profiles, dd.profiles_a, "a")
             _write_density_profiles!(g_profiles, dd.profiles_b, "b")
+            _write_density_profiles!(g_profiles, dd.profiles_ab, "ab")
         end
     end
 
