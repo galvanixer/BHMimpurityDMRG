@@ -117,6 +117,7 @@ function main()
             cfg=cfg,
             compute_density_density=false,
             compute_structure_factor=false,
+            compute_single_particle_density_matrix=false,
             compute_triple_corr=true
         )
 

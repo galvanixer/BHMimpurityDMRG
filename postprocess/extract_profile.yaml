@@ -4,6 +4,7 @@ profiles:
     include_density_vectors: false
     include_density_density: false
     include_structure_factor: false
+    include_single_particle_density_matrix: false
     include_triple_corr: false
     include_sampled_configs: false
 
@@ -12,5 +13,6 @@ profiles:
     include_density_vectors: true
     include_density_density: true
     include_structure_factor: true
+    include_single_particle_density_matrix: true
     include_triple_corr: true
     include_sampled_configs: false

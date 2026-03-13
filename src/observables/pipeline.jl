@@ -6,7 +6,7 @@
 # Centralized observables compute/write pipeline
 # ----------------------------
 
-const OBSERVABLES_SCHEMA_VERSION = "1.1.0"
+const OBSERVABLES_SCHEMA_VERSION = "1.2.0"
 
 """
     _cfg_get(d, key, default=nothing)
@@ -201,7 +201,8 @@ end
 Centralized observable evaluation from a state `psi`.
 
 Returns a NamedTuple with canonical sections:
-`energy`, `densities`, `totals`, `density_density`, `structure_factor`, `triple_corr`.
+`energy`, `densities`, `totals`, `density_density`, `structure_factor`,
+`single_particle_density_matrix`, `triple_corr`.
 """
 function compute_observables(
     psi::MPS,
@@ -213,6 +214,7 @@ function compute_observables(
     periodic::Union{Bool,Nothing}=nothing,
     compute_density_density::Bool=true,
     compute_structure_factor::Bool=true,
+    compute_single_particle_density_matrix::Bool=false,
     compute_triple_corr::Bool=false,
     progress::Bool=false
 )
@@ -238,6 +240,7 @@ function compute_observables(
 
     dd_cfg = _cfg_section(obs_cfg, "density_density")
     sf_cfg = _cfg_section(obs_cfg, "structure_factor")
+    spdm_cfg = _cfg_section(obs_cfg, "single_particle_density_matrix")
     tc_cfg = _cfg_section(obs_cfg, "triple_corr")
 
     dd_species = compute_density_density ?
@@ -246,6 +249,9 @@ function compute_observables(
     sf_species = compute_structure_factor ?
                  _parse_species(_cfg_get(sf_cfg, "species", "both"), "observables.structure_factor") :
                  String[]
+    spdm_species = compute_single_particle_density_matrix ?
+                   _parse_species(_cfg_get(spdm_cfg, "species", "both"), "observables.single_particle_density_matrix") :
+                   String[]
 
     same_site_convention = "factorial"
     if compute_density_density || compute_structure_factor
@@ -256,6 +262,8 @@ function compute_observables(
     sf_factorial_diagonal = (same_site_convention == "factorial")
     dd_backend = lowercase(String(_cfg_get(dd_cfg, "backend", "correlation_matrix")))
     dd_ishermitian = _parse_bool(_cfg_get(dd_cfg, "ishermitian", true), true)
+    spdm_backend = lowercase(String(_cfg_get(spdm_cfg, "backend", "correlation_matrix")))
+    spdm_ishermitian = _parse_bool(_cfg_get(spdm_cfg, "ishermitian", true), true)
     max_r = _cfg_get(dd_cfg, "max_r", nothing)
     max_r = max_r === nothing ? nothing : Int(max_r)
     fold_min_image = _parse_bool(_cfg_get(dd_cfg, "fold_min_image", false), false)
@@ -384,6 +392,33 @@ function compute_observables(
         println("Skipping observable: structure_factor (not requested)")
     end
 
+    G1_a = nothing
+    G1_b = nothing
+    if compute_single_particle_density_matrix
+        if "Na" in spdm_species
+            progress && println("Evaluating observable: single_particle_density_matrix (species=a)")
+            G1_a = single_particle_density_matrix(
+                psi,
+                sites,
+                "a";
+                backend=spdm_backend,
+                ishermitian=spdm_ishermitian
+            )
+        end
+        if "Nb" in spdm_species
+            progress && println("Evaluating observable: single_particle_density_matrix (species=b)")
+            G1_b = single_particle_density_matrix(
+                psi,
+                sites,
+                "b";
+                backend=spdm_backend,
+                ishermitian=spdm_ishermitian
+            )
+        end
+    elseif progress
+        println("Skipping observable: single_particle_density_matrix (not requested)")
+    end
+
     tc_pairs = Tuple{Int,Int}[]
     tc_anchors = nothing
     tc_a = nothing
@@ -484,6 +519,12 @@ function compute_observables(
             k_b=k_b,
             S_b=sf_b,
             S_connected_b=sfc_b
+        ),
+        single_particle_density_matrix=(
+            requested=compute_single_particle_density_matrix,
+            ishermitian=spdm_ishermitian,
+            G1_a=G1_a,
+            G1_b=G1_b
         ),
         triple_corr=(
             requested=compute_triple_corr,
@@ -592,6 +633,18 @@ function write_observables_hdf5!(f, obs; schema_version::AbstractString=OBSERVAB
             write_or_replace(g_sf, "k_b", sf.k_b)
             write_or_replace(g_sf, "S_b", sf.S_b)
             write_or_replace(g_sf, "S_connected_b", sf.S_connected_b)
+        end
+    end
+
+    spdm = obs.single_particle_density_matrix
+    if spdm.requested
+        g_spdm = HDF5.create_group(g_obs, "single_particle_density_matrix")
+        write_or_replace(g_spdm, "ishermitian", Bool(spdm.ishermitian))
+        if spdm.G1_a !== nothing
+            write_or_replace(g_spdm, "G1_a", spdm.G1_a)
+        end
+        if spdm.G1_b !== nothing
+            write_or_replace(g_spdm, "G1_b", spdm.G1_b)
         end
     end
 

@@ -52,6 +52,7 @@ const PREFERRED_SUMMARY_COLUMN_ORDER = [
     "has_observables",
     "has_density_density",
     "has_structure_factor",
+    "has_single_particle_density_matrix",
     "has_triple_corr",
     "has_sampled_configs",
     "schema_id",

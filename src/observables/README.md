@@ -261,3 +261,33 @@ C^{(3)}(r,s) = \frac{1}{N_{r,s}}\sum_{i\in A_{r,s}} C^{(3)}_{i,i+r,i+s}
 and similarly for normal-ordered quantities.
 
 $N_{r,s}$ is the number of valid anchors returned by these functions.
+
+## 7. Single-particle density matrix
+
+Implemented by `single_particle_density_matrix`.
+
+For each species separately, the code evaluates:
+
+```math
+G^{(1)}_{ij} = \langle a_i^\dagger a_j \rangle
+```
+
+or
+
+```math
+G^{(1)}_{ij} = \langle b_i^\dagger b_j \rangle
+```
+
+depending on the selected species.
+
+On the diagonal, this reduces to the site density:
+
+```math
+G^{(1)}_{ii} = \langle n_i \rangle
+```
+
+For a fixed species, the matrix is Hermitian:
+
+```math
+G^{(1)}_{ij} = \left(G^{(1)}_{ji}\right)^*
+```

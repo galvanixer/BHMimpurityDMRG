@@ -34,6 +34,7 @@ Thumbs.db
 # Temporary
 tmp/
 runs/
+analysis_notebooks/
 
 # Local HPC credentials
 hpc_campaigns/slurm/credentials.local.sh

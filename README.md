@@ -133,6 +133,9 @@ observables:
     same_site_convention: "factorial"
   structure_factor:
     species: "both"
+  single_particle_density_matrix:
+    species: "both"
+    ishermitian: true
   triple_corr:
     species: "both"
     all_pairs: false

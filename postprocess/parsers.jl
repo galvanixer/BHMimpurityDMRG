@@ -173,6 +173,7 @@ function summarize_observables(g_obs)
 
     summary["has_density_density"] = haskey(g_obs, "density_density")
     summary["has_structure_factor"] = haskey(g_obs, "structure_factor")
+    summary["has_single_particle_density_matrix"] = haskey(g_obs, "single_particle_density_matrix")
     summary["has_triple_corr"] = haskey(g_obs, "triple_corr")
     summary["has_sampled_configs"] = haskey(g_obs, "sampled_configs")
 
@@ -194,6 +195,7 @@ function collect_observables_payload(g_obs, profile::AbstractDict)
     include_density_vectors = include_arrays && profile_bool(profile, "include_density_vectors", false)
     include_density_density = include_arrays && profile_bool(profile, "include_density_density", false)
     include_structure_factor = include_arrays && profile_bool(profile, "include_structure_factor", false)
+    include_single_particle_density_matrix = include_arrays && profile_bool(profile, "include_single_particle_density_matrix", false)
     include_triple_corr = include_arrays && profile_bool(profile, "include_triple_corr", false)
     include_sampled_configs = include_arrays && profile_bool(profile, "include_sampled_configs", false)
 
@@ -205,6 +207,9 @@ function collect_observables_payload(g_obs, profile::AbstractDict)
     end
     if include_structure_factor && haskey(g_obs, "structure_factor")
         payload["structure_factor"] = read_group_recursive(g_obs["structure_factor"])
+    end
+    if include_single_particle_density_matrix && haskey(g_obs, "single_particle_density_matrix")
+        payload["single_particle_density_matrix"] = read_group_recursive(g_obs["single_particle_density_matrix"])
     end
     if include_triple_corr && haskey(g_obs, "triple_corr")
         payload["triple_corr"] = read_group_recursive(g_obs["triple_corr"])

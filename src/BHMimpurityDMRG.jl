@@ -30,6 +30,7 @@ export onsite_expect, measure_densities, total_numbers
 export expect_product, expect_n, expect_nn, expect_nnn
 export density_density_matrix, density_density_matrix_legacy, density_density_matrix_correlation, connected_density_density_matrix, transl_avg_density_density
 export structure_factor_from_nn
+export single_particle_density_matrix, single_particle_density_matrix_legacy, single_particle_density_matrix_correlation
 export connected_nnn, expect_nn_no, expect_nnn_no, connected_nnn_no
 export precompute_n, precompute_nn, expect_nnn_no_cached, connected_nnn_no_cached
 export transl_avg_nnn, transl_avg_connected_nnn

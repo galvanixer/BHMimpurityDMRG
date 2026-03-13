@@ -117,6 +117,8 @@ function main()
         if na === nothing || nb === nothing
             na, nb = measure_densities(psi, sites)
         end
+        obs_cfg = get(cfg, "observables", Dict{String,Any}())
+        spdm_requested = haskey(obs_cfg, "single_particle_density_matrix")
         obs = compute_observables(
             psi,
             sites;
@@ -126,6 +128,7 @@ function main()
             cfg=cfg,
             compute_density_density=true,
             compute_structure_factor=true,
+            compute_single_particle_density_matrix=spdm_requested,
             compute_triple_corr=false
         )
 

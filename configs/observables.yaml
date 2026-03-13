@@ -21,6 +21,11 @@ observables:
   structure_factor:
     species: "both"  # "a", "b", or "both"
 
+  single_particle_density_matrix:
+    species: "both"                # "a", "b", or "both"
+    backend: "correlation_matrix"  # "correlation_matrix" (fast) or "legacy" (MPO-per-pair)
+    ishermitian: true              # Use Hermitian symmetry G1(i,j)=conj(G1(j,i))
+
   triple_corr:
     species: "both"   # "a", "b", or "both"
     all_pairs: true   # true => compute all (r,s) on a grid; false => use explicit list below
