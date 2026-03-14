@@ -193,6 +193,99 @@ end
     return default
 end
 
+@inline function nested_get(d::AbstractDict, path::AbstractVector{<:AbstractString}, default=nothing)
+    cur = d
+    for p in path
+        if cur isa AbstractDict && haskey(cur, p)
+            cur = cur[p]
+        else
+            return default
+        end
+    end
+    return cur
+end
+
+@inline function dotted_or_nested_get(d::AbstractDict, dotted_key::String, default=nothing)
+    if haskey(d, dotted_key)
+        return d[dotted_key]
+    end
+    return nested_get(d, split(dotted_key, "."), default)
+end
+
+@inline function normalize_impurity_distribution(value)
+    value === nothing && return nothing
+    s = lowercase(strip(string(value)))
+    isempty(s) && return nothing
+    return Symbol(s)
+end
+
+function effective_impurity_distribution(base_cfg::AbstractDict, layers::AbstractDict...)
+    value = nested_get(base_cfg, ["initial_state", "impurity_distribution"], nothing)
+    for layer in layers
+        candidate = dotted_or_nested_get(layer, "initial_state.impurity_distribution", nothing)
+        if candidate !== nothing
+            value = candidate
+        end
+    end
+    impdist = normalize_impurity_distribution(value)
+    return impdist === nothing ? :center : impdist
+end
+
+function all_impurity_distributions_center(base_cfg::AbstractDict, overrides::AbstractDict, sweep::AbstractDict, linked_sweep::AbstractDict)
+    found_explicit_distribution = false
+    for source in (sweep, linked_sweep)
+        if haskey(source, "initial_state.impurity_distribution")
+            found_explicit_distribution = true
+            for value in as_sweep_vector(source["initial_state.impurity_distribution"])
+                normalize_impurity_distribution(value) == :center || return false
+            end
+        end
+    end
+
+    if found_explicit_distribution
+        return true
+    end
+    return effective_impurity_distribution(base_cfg, overrides) == :center
+end
+
+function prune_irrelevant_seed_sweeps!(base_cfg::AbstractDict, overrides::AbstractDict, sweep::AbstractDict, linked_sweep::AbstractDict)
+    has_seed_axis = haskey(sweep, "initial_state.seed") || haskey(linked_sweep, "initial_state.seed")
+    has_seed_axis || return false
+
+    all_impurity_distributions_center(base_cfg, overrides, sweep, linked_sweep) || return false
+
+    if haskey(sweep, "initial_state.seed")
+        delete!(sweep, "initial_state.seed")
+    end
+    if haskey(linked_sweep, "initial_state.seed")
+        delete!(linked_sweep, "initial_state.seed")
+    end
+    return true
+end
+
+function collapse_center_seed_assignments(base_cfg::AbstractDict, overrides::AbstractDict, assigns::AbstractVector)
+    out = OrderedDict{String,Any}[]
+    seen_center = Set{String}()
+    dropped = 0
+
+    for assign in assigns
+        assign_norm = copy(assign)
+        if effective_impurity_distribution(base_cfg, overrides, assign_norm) == :center &&
+           haskey(assign_norm, "initial_state.seed")
+            delete!(assign_norm, "initial_state.seed")
+            sig = repr(assign_norm)
+            if sig in seen_center
+                dropped += 1
+                continue
+            end
+            push!(seen_center, sig)
+        end
+        push!(out, assign_norm)
+    end
+
+    return out, dropped
+end
+
 function maybe_expand_auto_meta_date!(cfg::AbstractDict; timestamp::AbstractString)
     meta = dict_get(cfg, "meta", nothing)
     meta isa AbstractDict || return false
@@ -275,11 +368,13 @@ function main()
 
     overrides = haskey(c, "overrides") ? as_dict(c["overrides"]) : OrderedDict{String,Any}()
     sweep = haskey(c, "sweep") ? as_dict(c["sweep"]) : OrderedDict{String,Any}()
-    maybe_expand_auto_seeds!(c, sweep)
     linked_sweep = haskey(c, "linked_sweep") ? as_dict(c["linked_sweep"]) : OrderedDict{String,Any}()
+    ignored_seed_sweep_for_center = prune_irrelevant_seed_sweeps!(base_cfg, overrides, sweep, linked_sweep)
+    maybe_expand_auto_seeds!(c, sweep)
     cart_assigns = sweep_assignments(sweep)
     linked_assigns = linked_sweep_assignments(linked_sweep)
     assigns = combine_sweep_assignments(cart_assigns, linked_assigns)
+    assigns, dropped_center_seed_duplicates = collapse_center_seed_assignments(base_cfg, overrides, assigns)
 
     campaign_dir = joinpath(output_root, campaign_name)
     mkpath(campaign_dir)
@@ -340,6 +435,11 @@ function main()
     println("  campaign_yaml: ", campaign_yaml_copy)
     println("  runs_csv: ", index_path)
     println("  jobfile: ", jobfile_path)
+    if ignored_seed_sweep_for_center
+        println("  note: initial_state.seed ignored because impurity_distribution is fixed to center")
+    elseif dropped_center_seed_duplicates > 0
+        println("  note: removed $dropped_center_seed_duplicates center-only seed duplicate run(s)")
+    end
     if auto_date_expanded_count > 0
         println("  meta.date AUTO expanded in $auto_date_expanded_count run(s) as: ", campaign_timestamp)
     end
