@@ -91,6 +91,7 @@ function main()
 
     dd_requested = haskey(obs_cfg, "density_density")
     sf_requested = haskey(obs_cfg, "structure_factor")
+    pdd_requested = haskey(obs_cfg, "pair_distance_distribution")
     spdm_requested = haskey(obs_cfg, "single_particle_density_matrix")
     if haskey(obs_cfg, "triple_corr")
         println("Note: results_from_checkpoint.jl ignores observables.triple_corr by design.")
@@ -106,6 +107,7 @@ function main()
         periodic=periodic,
         compute_density_density=dd_requested,
         compute_structure_factor=sf_requested,
+        compute_pair_distance_distribution=pdd_requested,
         compute_single_particle_density_matrix=spdm_requested,
         compute_triple_corr=false,
         progress=true

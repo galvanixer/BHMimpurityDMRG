@@ -219,6 +219,7 @@ function build_observables_from_state(st, cfg::AbstractDict)
 
     dd_requested = haskey(obs_cfg, "density_density")
     sf_requested = haskey(obs_cfg, "structure_factor")
+    pdd_requested = haskey(obs_cfg, "pair_distance_distribution")
     spdm_requested = haskey(obs_cfg, "single_particle_density_matrix")
     tc_requested = haskey(obs_cfg, "triple_corr")
 
@@ -232,6 +233,7 @@ function build_observables_from_state(st, cfg::AbstractDict)
         periodic=periodic,
         compute_density_density=dd_requested,
         compute_structure_factor=sf_requested,
+        compute_pair_distance_distribution=pdd_requested,
         compute_single_particle_density_matrix=spdm_requested,
         compute_triple_corr=tc_requested,
         progress=false

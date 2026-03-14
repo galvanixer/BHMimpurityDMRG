@@ -6,7 +6,7 @@
 # Centralized observables compute/write pipeline
 # ----------------------------
 
-const OBSERVABLES_SCHEMA_VERSION = "1.4.0"
+const OBSERVABLES_SCHEMA_VERSION = "1.5.0"
 
 """
     _cfg_get(d, key, default=nothing)
@@ -205,7 +205,7 @@ Centralized observable evaluation from a state `psi`.
 
 Returns a NamedTuple with canonical sections:
 `energy`, `densities`, `totals`, `density_density`, `structure_factor`,
-`single_particle_density_matrix`, `triple_corr`.
+`pair_distance_distribution`, `single_particle_density_matrix`, `triple_corr`.
 """
 function compute_observables(
     psi::MPS,
@@ -217,6 +217,7 @@ function compute_observables(
     periodic::Union{Bool,Nothing}=nothing,
     compute_density_density::Bool=true,
     compute_structure_factor::Bool=true,
+    compute_pair_distance_distribution::Bool=false,
     compute_single_particle_density_matrix::Bool=false,
     compute_triple_corr::Bool=false,
     progress::Bool=false
@@ -243,6 +244,7 @@ function compute_observables(
 
     dd_cfg = _cfg_section(obs_cfg, "density_density")
     sf_cfg = _cfg_section(obs_cfg, "structure_factor")
+    pdd_cfg = _cfg_section(obs_cfg, "pair_distance_distribution")
     spdm_cfg = _cfg_section(obs_cfg, "single_particle_density_matrix")
     tc_cfg = _cfg_section(obs_cfg, "triple_corr")
 
@@ -252,12 +254,15 @@ function compute_observables(
     sf_species = compute_structure_factor ?
                  _parse_species(_cfg_get(sf_cfg, "species", "both"), "observables.structure_factor") :
                  String[]
+    pdd_species = compute_pair_distance_distribution ?
+                  _parse_species(_cfg_get(pdd_cfg, "species", "both"), "observables.pair_distance_distribution") :
+                  String[]
     spdm_species = compute_single_particle_density_matrix ?
                    _parse_species(_cfg_get(spdm_cfg, "species", "both"), "observables.single_particle_density_matrix") :
                    String[]
 
     same_site_convention = "factorial"
-    if compute_density_density || compute_structure_factor
+    if compute_density_density || compute_structure_factor || compute_pair_distance_distribution
         same_site_convention = lowercase(String(_cfg_get(dd_cfg, "same_site_convention", "factorial")))
         same_site_convention in ("factorial", "plain") ||
             error("observables.density_density.same_site_convention must be \"factorial\" or \"plain\"")
@@ -266,6 +271,7 @@ function compute_observables(
     dd_backend = lowercase(String(_cfg_get(dd_cfg, "backend", "correlation_matrix")))
     dd_ishermitian = _parse_bool(_cfg_get(dd_cfg, "ishermitian", true), true)
     dd_cross_species = _parse_bool(_cfg_get(dd_cfg, "cross_species", false), false)
+    pdd_cross_species = _parse_bool(_cfg_get(pdd_cfg, "cross_species", false), false)
     spdm_backend = lowercase(String(_cfg_get(spdm_cfg, "backend", "correlation_matrix")))
     spdm_ishermitian = _parse_bool(_cfg_get(spdm_cfg, "ishermitian", true), true)
     max_r = _cfg_get(dd_cfg, "max_r", nothing)
@@ -274,8 +280,10 @@ function compute_observables(
     edge_trims = _parse_edge_trims(dd_cfg, periodic_eff)
     default_edge_trim = (0 in edge_trims) ? 0 : first(edge_trims)
 
-    needed_ops = union(dd_species, sf_species)
-    if compute_density_density && dd_cross_species
+    needed_ops = union(union(dd_species, sf_species), pdd_species)
+    need_cross_ab = (compute_density_density && dd_cross_species) ||
+                    (compute_pair_distance_distribution && pdd_cross_species)
+    if need_cross_ab
         needed_ops = union(needed_ops, ["Na", "Nb"])
     end
     nvec_a = nothing
@@ -320,6 +328,17 @@ function compute_observables(
     profiles_b = nothing
     variance_b = nothing
     nn_ab = nothing
+    if need_cross_ab
+        nn_ab = cross_density_density_matrix(
+            psi,
+            sites,
+            "Na",
+            "Nb";
+            backend=dd_backend,
+            ishermitian=false
+        )
+    end
+
     connected_nn_ab = nothing
     r_ab = nothing
     g_ab = nothing
@@ -375,14 +394,7 @@ function compute_observables(
         end
         if dd_cross_species
             progress && println("Evaluating observable: density_density (species=ab)")
-            nn_ab = cross_density_density_matrix(
-                psi,
-                sites,
-                "Na",
-                "Nb";
-                backend=dd_backend,
-                ishermitian=false
-            )
+            nn_ab === nothing && error("Cross-species density matrix missing for density_density")
             connected_nn_ab = connected_cross_density_density_matrix(na_v, nb_v, nn_ab)
             profiles_ab = _compute_density_profiles(
                 na_v,
@@ -402,6 +414,63 @@ function compute_observables(
         end
     elseif progress
         println("Skipping observable: density_density (not requested)")
+    end
+
+    pdd_r_a = nothing
+    pdd_C_a = nothing
+    pdd_P_a = nothing
+    pdd_pair_count_a = nothing
+    pdd_mean_r_a = nothing
+    pdd_var_r_a = nothing
+    pdd_std_r_a = nothing
+    pdd_r_b = nothing
+    pdd_C_b = nothing
+    pdd_P_b = nothing
+    pdd_pair_count_b = nothing
+    pdd_mean_r_b = nothing
+    pdd_var_r_b = nothing
+    pdd_std_r_b = nothing
+    pdd_r_ab = nothing
+    pdd_C_ab = nothing
+    pdd_P_ab = nothing
+    pdd_pair_count_ab = nothing
+    pdd_mean_r_ab = nothing
+    pdd_var_r_ab = nothing
+    pdd_std_r_ab = nothing
+    if compute_pair_distance_distribution
+        if "Na" in pdd_species
+            progress && println("Evaluating observable: pair_distance_distribution (species=a)")
+            pdd_r_a, pdd_C_a, pdd_P_a, pdd_pair_count_a, pdd_mean_r_a, pdd_var_r_a, pdd_std_r_a =
+                pair_distance_distribution(
+                    nvec_a,
+                    nn_a;
+                    periodic=periodic_eff,
+                    same_site_convention=same_site_convention
+                )
+        end
+        if "Nb" in pdd_species
+            progress && println("Evaluating observable: pair_distance_distribution (species=b)")
+            pdd_r_b, pdd_C_b, pdd_P_b, pdd_pair_count_b, pdd_mean_r_b, pdd_var_r_b, pdd_std_r_b =
+                pair_distance_distribution(
+                    nvec_b,
+                    nn_b;
+                    periodic=periodic_eff,
+                    same_site_convention=same_site_convention
+                )
+        end
+        if pdd_cross_species
+            progress && println("Evaluating observable: pair_distance_distribution (species=ab)")
+            nn_ab === nothing && error("Cross-species density matrix missing for pair_distance_distribution")
+            pdd_r_ab, pdd_C_ab, pdd_P_ab, pdd_pair_count_ab, pdd_mean_r_ab, pdd_var_r_ab, pdd_std_r_ab =
+                cross_pair_distance_distribution(
+                    na_v,
+                    nb_v,
+                    nn_ab;
+                    periodic=periodic_eff
+                )
+        end
+    elseif progress
+        println("Skipping observable: pair_distance_distribution (not requested)")
     end
 
     k_a = nothing
@@ -574,6 +643,32 @@ function compute_observables(
             anchors_ab=anchors_ab,
             profiles_ab=profiles_ab
         ),
+        pair_distance_distribution=(
+            requested=compute_pair_distance_distribution,
+            same_site_convention=same_site_convention,
+            cross_species=pdd_cross_species,
+            r_a=pdd_r_a,
+            C_a=pdd_C_a,
+            P_a=pdd_P_a,
+            pair_count_a=pdd_pair_count_a,
+            mean_r_a=pdd_mean_r_a,
+            var_r_a=pdd_var_r_a,
+            std_r_a=pdd_std_r_a,
+            r_b=pdd_r_b,
+            C_b=pdd_C_b,
+            P_b=pdd_P_b,
+            pair_count_b=pdd_pair_count_b,
+            mean_r_b=pdd_mean_r_b,
+            var_r_b=pdd_var_r_b,
+            std_r_b=pdd_std_r_b,
+            r_ab=pdd_r_ab,
+            C_ab=pdd_C_ab,
+            P_ab=pdd_P_ab,
+            pair_count_ab=pdd_pair_count_ab,
+            mean_r_ab=pdd_mean_r_ab,
+            var_r_ab=pdd_var_r_ab,
+            std_r_ab=pdd_std_r_ab
+        ),
         structure_factor=(
             requested=compute_structure_factor,
             k_a=k_a,
@@ -694,6 +789,40 @@ function write_observables_hdf5!(f, obs; schema_version::AbstractString=OBSERVAB
             _write_density_profiles!(g_profiles, dd.profiles_a, "a")
             _write_density_profiles!(g_profiles, dd.profiles_b, "b")
             _write_density_profiles!(g_profiles, dd.profiles_ab, "ab")
+        end
+    end
+
+    pdd = obs.pair_distance_distribution
+    if pdd.requested
+        g_pdd = HDF5.create_group(g_obs, "pair_distance_distribution")
+        write_or_replace(g_pdd, "same_site_convention", pdd.same_site_convention)
+        write_or_replace(g_pdd, "cross_species", Bool(pdd.cross_species))
+        if pdd.P_a !== nothing
+            write_or_replace(g_pdd, "r_a", pdd.r_a)
+            write_or_replace(g_pdd, "C_a", pdd.C_a)
+            write_or_replace(g_pdd, "P_a", pdd.P_a)
+            write_or_replace(g_pdd, "pair_count_a", pdd.pair_count_a)
+            write_or_replace(g_pdd, "mean_r_a", pdd.mean_r_a)
+            write_or_replace(g_pdd, "var_r_a", pdd.var_r_a)
+            write_or_replace(g_pdd, "std_r_a", pdd.std_r_a)
+        end
+        if pdd.P_b !== nothing
+            write_or_replace(g_pdd, "r_b", pdd.r_b)
+            write_or_replace(g_pdd, "C_b", pdd.C_b)
+            write_or_replace(g_pdd, "P_b", pdd.P_b)
+            write_or_replace(g_pdd, "pair_count_b", pdd.pair_count_b)
+            write_or_replace(g_pdd, "mean_r_b", pdd.mean_r_b)
+            write_or_replace(g_pdd, "var_r_b", pdd.var_r_b)
+            write_or_replace(g_pdd, "std_r_b", pdd.std_r_b)
+        end
+        if pdd.P_ab !== nothing
+            write_or_replace(g_pdd, "r_ab", pdd.r_ab)
+            write_or_replace(g_pdd, "C_ab", pdd.C_ab)
+            write_or_replace(g_pdd, "P_ab", pdd.P_ab)
+            write_or_replace(g_pdd, "pair_count_ab", pdd.pair_count_ab)
+            write_or_replace(g_pdd, "mean_r_ab", pdd.mean_r_ab)
+            write_or_replace(g_pdd, "var_r_ab", pdd.var_r_ab)
+            write_or_replace(g_pdd, "std_r_ab", pdd.std_r_ab)
         end
     end
 

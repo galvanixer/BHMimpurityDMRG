@@ -19,6 +19,10 @@ observables:
     # edge_trims: [0, 2, 4]    # Optional OBC-only multi-profile mode; supersedes edge_trim when set
     same_site_convention: "factorial"  # "factorial" => n(n-1) on i=j, "plain" => n^2 on i=j
 
+  pair_distance_distribution:
+    species: "both"       # "a", "b", or "both"
+    cross_species: false  # If true, also compute cross-species distribution from <Na_i Nb_j>
+
   structure_factor:
     species: "both"  # "a", "b", or "both"
 

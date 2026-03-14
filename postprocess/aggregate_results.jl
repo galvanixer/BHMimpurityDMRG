@@ -51,6 +51,7 @@ const PREFERRED_SUMMARY_COLUMN_ORDER = [
     "L_from_density",
     "has_observables",
     "has_density_density",
+    "has_pair_distance_distribution",
     "has_structure_factor",
     "has_single_particle_density_matrix",
     "has_triple_corr",

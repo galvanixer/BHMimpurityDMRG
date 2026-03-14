@@ -5,6 +5,7 @@
 include(joinpath(@__DIR__, "common.jl"))
 include(joinpath(@__DIR__, "densities.jl"))
 include(joinpath(@__DIR__, "density_density.jl"))
+include(joinpath(@__DIR__, "pair_distance_distribution.jl"))
 include(joinpath(@__DIR__, "structure_factor.jl"))
 include(joinpath(@__DIR__, "single_particle_density_matrix.jl"))
 include(joinpath(@__DIR__, "triple_density.jl"))

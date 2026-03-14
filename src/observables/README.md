@@ -222,7 +222,57 @@ S(k_m) = \frac{1}{L}\sum_{i=1}^{L}\sum_{j=1}^{L} e^{ik_m(i-j)} M_{ij}
 
 The implementation returns $\mathrm{Re}[S(k_m)]$.
 
-## 5. Three-point density correlators
+## 5. Pair-distance distribution
+
+Implemented by `pair_distance_distribution` and `cross_pair_distance_distribution`,
+stored under `/observables/pair_distance_distribution`.
+For design rationale and storage philosophy, see `docs/pair_distance_distribution.md`.
+
+For one species, define the expected unordered pair-count profile:
+
+```math
+C(r)=
+\begin{cases}
+\sum_i \frac{1}{2}\langle n_i(n_i-1)\rangle, & r=0, \\
+\sum_{i<j,\; d(i,j)=r}\langle n_i n_j\rangle, & r>0.
+\end{cases}
+```
+
+The normalized distribution is
+
+```math
+P(r)=\frac{C(r)}{\sum_{r'} C(r')}.
+```
+
+For periodic boundaries, the code uses unsigned minimum-image distance:
+
+```math
+d(i,j)=\min(|i-j|,\,L-|i-j|),
+```
+
+so `r` runs from `0` to `floor(L/2)`; for open boundaries it runs from `0` to `L-1`.
+
+For cross species (`a`,`b`), the pair-count profile is
+
+```math
+C^{(ab)}(r)=\sum_{i,j,\; d(i,j)=r}\langle n_i^{(a)} n_j^{(b)}\rangle,
+```
+
+with normalization
+
+```math
+P^{(ab)}(r)=\frac{C^{(ab)}(r)}{\sum_{r'} C^{(ab)}(r')}.
+```
+
+The pipeline also stores moments:
+
+```math
+\langle r\rangle = \sum_r r P(r),\quad
+\mathrm{Var}(r)=\sum_r r^2 P(r)-\langle r\rangle^2,\quad
+\sigma_r=\sqrt{\mathrm{Var}(r)}.
+```
+
+## 6. Three-point density correlators
 
 ### Plain (non-normal-ordered)
 
@@ -293,7 +343,7 @@ C^{(3),\mathrm{no}}_{ijk} =
 
 Cached variants (`precompute_n`, `precompute_nn`, `*_cached`) use the same formulas with reused one- and two-point moments.
 
-## 6. Translationally averaged three-point functions
+## 7. Translationally averaged three-point functions
 
 Implemented by:
 
@@ -317,7 +367,7 @@ and similarly for normal-ordered quantities.
 
 $N_{r,s}$ is the number of valid anchors returned by these functions.
 
-## 7. Single-particle density matrix
+## 8. Single-particle density matrix
 
 Implemented by `single_particle_density_matrix`.
 

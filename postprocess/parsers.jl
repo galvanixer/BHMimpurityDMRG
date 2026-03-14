@@ -172,6 +172,7 @@ function summarize_observables(g_obs)
     end
 
     summary["has_density_density"] = haskey(g_obs, "density_density")
+    summary["has_pair_distance_distribution"] = haskey(g_obs, "pair_distance_distribution")
     summary["has_structure_factor"] = haskey(g_obs, "structure_factor")
     summary["has_single_particle_density_matrix"] = haskey(g_obs, "single_particle_density_matrix")
     summary["has_triple_corr"] = haskey(g_obs, "triple_corr")
@@ -194,6 +195,7 @@ function collect_observables_payload(g_obs, profile::AbstractDict)
     include_arrays = profile_bool(profile, "include_arrays", false)
     include_density_vectors = include_arrays && profile_bool(profile, "include_density_vectors", false)
     include_density_density = include_arrays && profile_bool(profile, "include_density_density", false)
+    include_pair_distance_distribution = include_arrays && profile_bool(profile, "include_pair_distance_distribution", false)
     include_structure_factor = include_arrays && profile_bool(profile, "include_structure_factor", false)
     include_single_particle_density_matrix = include_arrays && profile_bool(profile, "include_single_particle_density_matrix", false)
     include_triple_corr = include_arrays && profile_bool(profile, "include_triple_corr", false)
@@ -204,6 +206,9 @@ function collect_observables_payload(g_obs, profile::AbstractDict)
     end
     if include_density_density && haskey(g_obs, "density_density")
         payload["density_density"] = read_group_recursive(g_obs["density_density"])
+    end
+    if include_pair_distance_distribution && haskey(g_obs, "pair_distance_distribution")
+        payload["pair_distance_distribution"] = read_group_recursive(g_obs["pair_distance_distribution"])
     end
     if include_structure_factor && haskey(g_obs, "structure_factor")
         payload["structure_factor"] = read_group_recursive(g_obs["structure_factor"])

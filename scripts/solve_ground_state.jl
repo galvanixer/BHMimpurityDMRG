@@ -118,6 +118,7 @@ function main()
             na, nb = measure_densities(psi, sites)
         end
         obs_cfg = get(cfg, "observables", Dict{String,Any}())
+        pdd_requested = haskey(obs_cfg, "pair_distance_distribution")
         spdm_requested = haskey(obs_cfg, "single_particle_density_matrix")
         obs = compute_observables(
             psi,
@@ -128,6 +129,7 @@ function main()
             cfg=cfg,
             compute_density_density=true,
             compute_structure_factor=true,
+            compute_pair_distance_distribution=pdd_requested,
             compute_single_particle_density_matrix=spdm_requested,
             compute_triple_corr=false
         )

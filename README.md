@@ -6,7 +6,7 @@ DMRG simulations for a two-species Bose-Hubbard model with impurities, custom bo
 - Custom two-boson site type with U(1) × U(1) QN conservation.
 - Bose-Hubbard Hamiltonian with A/B species, interspecies coupling, and chemical potentials.
 - DMRG driver with reasonable sweep defaults.
-- Observables including densities and connected triple correlators (normal-ordered).
+- Observables including densities, pair-distance distributions, and connected triple correlators (normal-ordered).
 - Binding-energy estimators for impurity sectors.
 - YAML-based parameter loading.
 - Optional HDF5 save/load of ground states.
@@ -132,6 +132,9 @@ observables:
     max_r: 6
     fold_min_image: false
     same_site_convention: "factorial"
+  pair_distance_distribution:
+    species: "both"
+    cross_species: false
   structure_factor:
     species: "both"
   single_particle_density_matrix:
