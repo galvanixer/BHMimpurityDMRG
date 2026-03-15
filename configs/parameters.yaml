@@ -65,6 +65,13 @@ dmrg:
   #   start: 1e-8
   #   stop: 1e-10
   #   warmup_sweeps: 6
+  noise: 0.0      # DMRG noise (scalar, vector, or warmup dict); use >0 early sweeps to escape local minima
+  # Recommended noise schedule when stuck:
+  # noise:
+  #   mode: "warmup"      # warmup/auto/automatic/linear or logspace/geometric
+  #   start: 1e-6
+  #   stop: 0.0
+  #   warmup_sweeps: 6    # then padded with stop value
   outputlevel: 1  # ITensors verbosity (0 quiet, 1 sweep summary, >=2 detailed)
 
   # Early stopping

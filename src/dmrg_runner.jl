@@ -485,6 +485,120 @@ function expand_cutoff_schedule(cutoff, nsweeps::Int)
     return vcat(sched, fill(sched[end], nsweeps - length(sched)))
 end
 
+function expand_noise_schedule(noise, nsweeps::Int)
+    nsweeps >= 0 || error("nsweeps must be non-negative, got $nsweeps")
+    if nsweeps == 0
+        return Float64[]
+    end
+    if noise === nothing
+        return fill(0.0, nsweeps)
+    end
+
+    function _dict_get(d::AbstractDict, keys::Vector{String}, default=nothing)
+        for k in keys
+            if haskey(d, k)
+                return d[k]
+            end
+            ks = Symbol(k)
+            if haskey(d, ks)
+                return d[ks]
+            end
+        end
+        return default
+    end
+
+    function _linear_schedule(start_v::Float64, stop_v::Float64, nwarm::Int)
+        if nwarm == 1
+            return [stop_v]
+        end
+        vals = Vector{Float64}(undef, nwarm)
+        for i in 1:nwarm
+            t = (i - 1) / (nwarm - 1)
+            vals[i] = (1 - t) * start_v + t * stop_v
+        end
+        vals[end] = stop_v
+        return vals
+    end
+
+    function _geometric_schedule(start_v::Float64, stop_v::Float64, nwarm::Int)
+        start_v > 0 || error("noise geometric/logspace start must be > 0, got $start_v")
+        stop_v > 0 || error("noise geometric/logspace stop must be > 0, got $stop_v")
+        if nwarm == 1
+            return [stop_v]
+        end
+        ratio = (stop_v / start_v)^(1 / (nwarm - 1))
+        vals = Vector{Float64}(undef, nwarm)
+        vals[1] = start_v
+        for i in 2:nwarm
+            vals[i] = vals[i - 1] * ratio
+        end
+        vals[end] = stop_v
+        return vals
+    end
+
+    function _auto_noise_schedule(spec::AbstractDict)
+        values_raw = _dict_get(spec, ["values", "schedule"], nothing)
+        if values_raw !== nothing
+            vals = Float64.(collect(values_raw))
+            isempty(vals) && error("noise values/schedule cannot be empty")
+            all(v -> v >= 0, vals) || error("all noise schedule values must be >= 0")
+            return vals
+        end
+
+        value_raw = _dict_get(spec, ["value"], nothing)
+        if value_raw !== nothing
+            v = Float64(value_raw)
+            v >= 0 || error("noise value must be >= 0, got $v")
+            return [v]
+        end
+
+        start_raw = _dict_get(spec, ["start", "initial", "from", "max"], nothing)
+        stop_raw = _dict_get(spec, ["stop", "final", "target", "to", "min"], nothing)
+        if start_raw === nothing && stop_raw === nothing
+            error(
+                "noise warmup spec requires \"start\" and/or \"stop\" (aliases: initial/final/target)"
+            )
+        end
+
+        start_v = start_raw === nothing ? Float64(stop_raw) : Float64(start_raw)
+        stop_v = stop_raw === nothing ? Float64(start_raw) : Float64(stop_raw)
+        start_v >= 0 || error("noise start/initial must be >= 0, got $start_v")
+        stop_v >= 0 || error("noise stop/final/target must be >= 0, got $stop_v")
+
+        warmup_raw = _dict_get(spec, ["warmup_sweeps", "steps", "length"], nothing)
+        nwarm = warmup_raw === nothing ? nsweeps : Int(warmup_raw)
+        nwarm >= 1 || error("noise warmup_sweeps/steps/length must be >= 1, got $nwarm")
+        nwarm = min(nwarm, nsweeps)
+
+        mode_raw = _dict_get(spec, ["mode"], "warmup")
+        mode = lowercase(String(mode_raw))
+        if mode in ("warmup", "auto", "automatic", "linear")
+            return _linear_schedule(start_v, stop_v, nwarm)
+        elseif mode in ("logspace", "geometric")
+            return _geometric_schedule(start_v, stop_v, nwarm)
+        end
+        error(
+            "noise.mode must be one of: warmup, auto, automatic, linear, logspace, geometric (got: $mode_raw)"
+        )
+    end
+
+    sched = if noise isa AbstractVector
+        vals = Float64.(collect(noise))
+        isempty(vals) && error("noise vector cannot be empty")
+        vals
+    elseif noise isa AbstractDict
+        _auto_noise_schedule(noise)
+    else
+        [Float64(noise)]
+    end
+
+    all(v -> v >= 0, sched) || error("all noise values must be >= 0")
+    if length(sched) >= nsweeps
+        return sched[1:nsweeps]
+    end
+    return vcat(sched, fill(sched[end], nsweeps - length(sched)))
+end
+
 function current_params_sha256(params_path)::Union{Nothing,String}
     if params_path === nothing || !isfile(params_path)
         return nothing
@@ -594,6 +708,7 @@ function run_dmrg(; L=12,
     mu_a=0.0, mu_b=0.0,
     nsweeps=12, periodic=true,
     cutoff=1e-10,
+    noise=0.0,
     maxdim=[50, 100, 200, 400, 600, 800, 800, 800, 800, 800, 800, 800],
     energy_tol=0.0,
     trunc_tol=0.0,
@@ -674,6 +789,7 @@ function run_dmrg(; L=12,
     )
     maxdim_schedule = expand_maxdim_schedule(maxdim, Int(nsweeps))
     cutoff_schedule = expand_cutoff_schedule(cutoff, Int(nsweeps))
+    noise_schedule = expand_noise_schedule(noise, Int(nsweeps))
     sweep_offset = 0
     if st_checkpoint !== nothing && resume_mode_sym == :remaining && checkpoint_sweep > 0
         if checkpoint_sweep >= nsweeps
@@ -706,6 +822,7 @@ function run_dmrg(; L=12,
         end
         maxdim_schedule = maxdim_schedule[(checkpoint_sweep + 1):end]
         cutoff_schedule = cutoff_schedule[(checkpoint_sweep + 1):end]
+        noise_schedule = noise_schedule[(checkpoint_sweep + 1):end]
         sweep_offset = checkpoint_sweep
         outputlevel > 0 && println("Resuming remaining sweeps: $(length(maxdim_schedule)) (offset=$sweep_offset)")
     elseif st_checkpoint !== nothing && resume_mode_sym == :warm_start
@@ -716,12 +833,15 @@ function run_dmrg(; L=12,
         error(
             "internal schedule mismatch: maxdim has $(length(maxdim_schedule)) sweeps, cutoff has $(length(cutoff_schedule)) sweeps"
         )
+    length(maxdim_schedule) == length(noise_schedule) ||
+        error(
+            "internal schedule mismatch: maxdim has $(length(maxdim_schedule)) sweeps, noise has $(length(noise_schedule)) sweeps"
+        )
 
     sweeps = Sweeps(length(maxdim_schedule))
     maxdim!(sweeps, maxdim_schedule...)
     cutoff!(sweeps, cutoff_schedule...)
-    # Uncomment noise if you see convergence to excited states/local minima:
-    # noise!(sweeps, 1e-6, 1e-7, 1e-8, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+    noise!(sweeps, noise_schedule...)
 
     observer = EarlyStopDMRGObserver(;
         energy_tol=energy_tol,

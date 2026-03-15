@@ -105,6 +105,13 @@ dmrg:
   #   start: 1e-8
   #   stop: 1e-10
   #   warmup_sweeps: 6
+  noise: 0.0
+  # Recommended if DMRG gets stuck in local minima:
+  # noise:
+  #   mode: "warmup"  # warmup/auto/automatic/linear or logspace/geometric
+  #   start: 1e-6
+  #   stop: 0.0
+  #   warmup_sweeps: 6
   maxdim: [50, 100, 200, 400, 600, 800, 800, 800, 800, 800, 800, 800]
   # Alternative: auto warmup to a target max bond dimension
   # maxdim:
