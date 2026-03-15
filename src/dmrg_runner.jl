@@ -324,50 +324,74 @@ function dmrg_initial_configuration(; L=12,
     return conf, na0, nb0
 end
 
+function _spec_get(d::AbstractDict, key::String, default=nothing)
+    if haskey(d, key)
+        return d[key]
+    end
+    ks = Symbol(key)
+    if haskey(d, ks)
+        return d[ks]
+    end
+    return default
+end
+
+function _spec_keys(d::AbstractDict)
+    keys_out = String[]
+    for k in keys(d)
+        push!(keys_out, k isa Symbol ? String(k) : string(k))
+    end
+    return keys_out
+end
+
+function _require_allowed_spec_keys(d::AbstractDict, allowed_keys::Vector{String}, what::AbstractString)
+    allowed = Set(allowed_keys)
+    unexpected = sort!(filter(k -> !(k in allowed), _spec_keys(d)))
+    allowed_list = join(sort!(copy(allowed_keys)), ", ")
+    unexpected_list = join(unexpected, ", ")
+    isempty(unexpected) || error(
+        "$what only accepts keys $allowed_list; unexpected key(s): $unexpected_list"
+    )
+    return nothing
+end
+
 function expand_maxdim_schedule(maxdim, nsweeps::Int)
     nsweeps >= 0 || error("nsweeps must be non-negative, got $nsweeps")
     if nsweeps == 0
         return Int[]
     end
 
-    function _dict_get(d::AbstractDict, keys::Vector{String}, default=nothing)
-        for k in keys
-            if haskey(d, k)
-                return d[k]
-            end
-            ks = Symbol(k)
-            if haskey(d, ks)
-                return d[ks]
-            end
-        end
-        return default
-    end
+    function _warmup_schedule(spec::AbstractDict)
+        _require_allowed_spec_keys(spec, ["mode", "min", "max", "sweeps"], "maxdim dict")
 
-    function _auto_warmup_schedule(spec::AbstractDict)
-        maxv_raw = _dict_get(spec, ["max", "maximum"], nothing)
-        maxv_raw === nothing && error("maxdim warmup spec requires key \"max\" (or \"maximum\")")
+        mode_raw = _spec_get(spec, "mode", nothing)
+        mode_raw === nothing && error("maxdim dict requires mode=\"warmup\"")
+        mode = lowercase(String(mode_raw))
+        mode == "warmup" || error("maxdim.mode must be \"warmup\" (got: $mode_raw)")
+
+        maxv_raw = _spec_get(spec, "max", nothing)
+        maxv_raw === nothing && error("maxdim dict requires key \"max\"")
         maxv = Int(maxv_raw)
         maxv >= 1 || error("maxdim max must be >= 1, got $maxv")
 
-        minv = Int(_dict_get(spec, ["min", "start"], min(50, maxv)))
-        minv >= 1 || error("maxdim min/start must be >= 1, got $minv")
-        minv <= maxv || error("maxdim min/start must be <= max, got min=$minv max=$maxv")
+        minv = Int(_spec_get(spec, "min", min(50, maxv)))
+        minv >= 1 || error("maxdim min must be >= 1, got $minv")
+        minv <= maxv || error("maxdim min must be <= max, got min=$minv max=$maxv")
 
-        warmup_raw = _dict_get(spec, ["warmup_sweeps", "steps", "length"], nothing)
-        if warmup_raw !== nothing
-            nwarm = Int(warmup_raw)
-            nwarm >= 1 || error("maxdim warmup_sweeps/steps/length must be >= 1, got $nwarm")
-            nwarm = min(nwarm, nsweeps)
+        sweeps_raw = _spec_get(spec, "sweeps", nothing)
+        if sweeps_raw !== nothing
+            nsched = Int(sweeps_raw)
+            nsched >= 1 || error("maxdim sweeps must be >= 1, got $nsched")
+            nsched = min(nsched, nsweeps)
 
-            if nwarm == 1
+            if nsched == 1
                 return [maxv]
             end
 
             # Geometric ramp from min -> max, then `expand_maxdim_schedule` pads with max.
-            ratio = maxv == minv ? 1.0 : (maxv / minv)^(1 / (nwarm - 1))
-            vals = Vector{Int}(undef, nwarm)
+            ratio = maxv == minv ? 1.0 : (maxv / minv)^(1 / (nsched - 1))
+            vals = Vector{Int}(undef, nsched)
             vals[1] = minv
-            for i in 2:nwarm
+            for i in 2:nsched
                 vals[i] = max(vals[i - 1], Int(round(minv * ratio^(i - 1))))
             end
             vals[end] = maxv
@@ -387,16 +411,12 @@ function expand_maxdim_schedule(maxdim, nsweeps::Int)
         isempty(vals) && error("maxdim vector cannot be empty")
         vals
     elseif maxdim isa AbstractDict
-        spec = maxdim
-        mode_raw = _dict_get(spec, ["mode"], "warmup")
-        mode = lowercase(String(mode_raw))
-        mode in ("warmup", "auto", "automatic") ||
-            error("maxdim.mode must be one of: warmup, auto, automatic (got: $mode_raw)")
-        _auto_warmup_schedule(spec)
+        _warmup_schedule(maxdim)
     else
         [Int(maxdim)]
     end
 
+    all(v -> v >= 1, sched) || error("all maxdim values must be >= 1")
     if length(sched) >= nsweeps
         return sched[1:nsweeps]
     end
@@ -409,54 +429,38 @@ function expand_cutoff_schedule(cutoff, nsweeps::Int)
         return Float64[]
     end
 
-    function _dict_get(d::AbstractDict, keys::Vector{String}, default=nothing)
-        for k in keys
-            if haskey(d, k)
-                return d[k]
-            end
-            ks = Symbol(k)
-            if haskey(d, ks)
-                return d[ks]
-            end
-        end
-        return default
-    end
+    function _geometric_schedule(spec::AbstractDict)
+        _require_allowed_spec_keys(spec, ["mode", "start", "stop", "sweeps"], "cutoff dict")
 
-    function _auto_cutoff_schedule(spec::AbstractDict)
-        value_raw = _dict_get(spec, ["value"], nothing)
-        if value_raw !== nothing
-            v = Float64(value_raw)
-            v > 0 || error("cutoff value must be > 0, got $v")
-            return [v]
-        end
+        mode_raw = _spec_get(spec, "mode", nothing)
+        mode_raw === nothing && error("cutoff dict requires mode=\"geometric\"")
+        mode = lowercase(String(mode_raw))
+        mode == "geometric" || error("cutoff.mode must be \"geometric\" (got: $mode_raw)")
 
-        start_raw = _dict_get(spec, ["start", "initial", "from", "max"], nothing)
-        stop_raw = _dict_get(spec, ["stop", "final", "target", "to", "min"], nothing)
-        if start_raw === nothing && stop_raw === nothing
-            error(
-                "cutoff warmup spec requires \"start\" and/or \"stop\" (aliases: initial/final/target)"
-            )
-        end
+        start_raw = _spec_get(spec, "start", nothing)
+        stop_raw = _spec_get(spec, "stop", nothing)
+        start_raw === nothing && error("cutoff dict requires key \"start\"")
+        stop_raw === nothing && error("cutoff dict requires key \"stop\"")
 
-        start_v = start_raw === nothing ? Float64(stop_raw) : Float64(start_raw)
-        stop_v = stop_raw === nothing ? Float64(start_raw) : Float64(stop_raw)
-        start_v > 0 || error("cutoff start/initial must be > 0, got $start_v")
-        stop_v > 0 || error("cutoff stop/final/target must be > 0, got $stop_v")
+        start_v = Float64(start_raw)
+        stop_v = Float64(stop_raw)
+        start_v > 0 || error("cutoff start must be > 0, got $start_v")
+        stop_v > 0 || error("cutoff stop must be > 0, got $stop_v")
 
-        warmup_raw = _dict_get(spec, ["warmup_sweeps", "steps", "length"], nothing)
-        nwarm = warmup_raw === nothing ? nsweeps : Int(warmup_raw)
-        nwarm >= 1 || error("cutoff warmup_sweeps/steps/length must be >= 1, got $nwarm")
-        nwarm = min(nwarm, nsweeps)
+        sweeps_raw = _spec_get(spec, "sweeps", nothing)
+        nsched = sweeps_raw === nothing ? nsweeps : Int(sweeps_raw)
+        nsched >= 1 || error("cutoff sweeps must be >= 1, got $nsched")
+        nsched = min(nsched, nsweeps)
 
-        if nwarm == 1
+        if nsched == 1
             return [stop_v]
         end
 
         # Geometric ramp for cutoff so multi-decade schedules are natural.
-        ratio = (stop_v / start_v)^(1 / (nwarm - 1))
-        vals = Vector{Float64}(undef, nwarm)
+        ratio = (stop_v / start_v)^(1 / (nsched - 1))
+        vals = Vector{Float64}(undef, nsched)
         vals[1] = start_v
-        for i in 2:nwarm
+        for i in 2:nsched
             vals[i] = vals[i - 1] * ratio
         end
         vals[end] = stop_v
@@ -468,12 +472,7 @@ function expand_cutoff_schedule(cutoff, nsweeps::Int)
         isempty(vals) && error("cutoff vector cannot be empty")
         vals
     elseif cutoff isa AbstractDict
-        spec = cutoff
-        mode_raw = _dict_get(spec, ["mode"], "warmup")
-        mode = lowercase(String(mode_raw))
-        mode in ("warmup", "auto", "automatic", "logspace", "geometric") ||
-            error("cutoff.mode must be one of: warmup, auto, automatic, logspace, geometric (got: $mode_raw)")
-        _auto_cutoff_schedule(spec)
+        _geometric_schedule(cutoff)
     else
         [Float64(cutoff)]
     end
@@ -494,19 +493,6 @@ function expand_noise_schedule(noise, nsweeps::Int)
         return fill(0.0, nsweeps)
     end
 
-    function _dict_get(d::AbstractDict, keys::Vector{String}, default=nothing)
-        for k in keys
-            if haskey(d, k)
-                return d[k]
-            end
-            ks = Symbol(k)
-            if haskey(d, ks)
-                return d[ks]
-            end
-        end
-        return default
-    end
-
     function _linear_schedule(start_v::Float64, stop_v::Float64, nwarm::Int)
         if nwarm == 1
             return [stop_v]
@@ -521,8 +507,8 @@ function expand_noise_schedule(noise, nsweeps::Int)
     end
 
     function _geometric_schedule(start_v::Float64, stop_v::Float64, nwarm::Int)
-        start_v > 0 || error("noise geometric/logspace start must be > 0, got $start_v")
-        stop_v > 0 || error("noise geometric/logspace stop must be > 0, got $stop_v")
+        start_v > 0 || error("noise geometric start must be > 0, got $start_v")
+        stop_v > 0 || error("noise geometric stop must be > 0, got $stop_v")
         if nwarm == 1
             return [stop_v]
         end
@@ -536,50 +522,34 @@ function expand_noise_schedule(noise, nsweeps::Int)
         return vals
     end
 
-    function _auto_noise_schedule(spec::AbstractDict)
-        values_raw = _dict_get(spec, ["values", "schedule"], nothing)
-        if values_raw !== nothing
-            vals = Float64.(collect(values_raw))
-            isempty(vals) && error("noise values/schedule cannot be empty")
-            all(v -> v >= 0, vals) || error("all noise schedule values must be >= 0")
-            return vals
-        end
+    function _generated_noise_schedule(spec::AbstractDict)
+        _require_allowed_spec_keys(spec, ["mode", "start", "stop", "sweeps"], "noise dict")
 
-        value_raw = _dict_get(spec, ["value"], nothing)
-        if value_raw !== nothing
-            v = Float64(value_raw)
-            v >= 0 || error("noise value must be >= 0, got $v")
-            return [v]
-        end
-
-        start_raw = _dict_get(spec, ["start", "initial", "from", "max"], nothing)
-        stop_raw = _dict_get(spec, ["stop", "final", "target", "to", "min"], nothing)
-        if start_raw === nothing && stop_raw === nothing
-            error(
-                "noise warmup spec requires \"start\" and/or \"stop\" (aliases: initial/final/target)"
-            )
-        end
-
-        start_v = start_raw === nothing ? Float64(stop_raw) : Float64(start_raw)
-        stop_v = stop_raw === nothing ? Float64(start_raw) : Float64(stop_raw)
-        start_v >= 0 || error("noise start/initial must be >= 0, got $start_v")
-        stop_v >= 0 || error("noise stop/final/target must be >= 0, got $stop_v")
-
-        warmup_raw = _dict_get(spec, ["warmup_sweeps", "steps", "length"], nothing)
-        nwarm = warmup_raw === nothing ? nsweeps : Int(warmup_raw)
-        nwarm >= 1 || error("noise warmup_sweeps/steps/length must be >= 1, got $nwarm")
-        nwarm = min(nwarm, nsweeps)
-
-        mode_raw = _dict_get(spec, ["mode"], "warmup")
+        mode_raw = _spec_get(spec, "mode", nothing)
+        mode_raw === nothing && error("noise dict requires mode=\"linear\" or mode=\"geometric\"")
         mode = lowercase(String(mode_raw))
-        if mode in ("warmup", "auto", "automatic", "linear")
-            return _linear_schedule(start_v, stop_v, nwarm)
-        elseif mode in ("logspace", "geometric")
-            return _geometric_schedule(start_v, stop_v, nwarm)
+        mode in ("linear", "geometric") ||
+            error("noise.mode must be \"linear\" or \"geometric\" (got: $mode_raw)")
+
+        start_raw = _spec_get(spec, "start", nothing)
+        stop_raw = _spec_get(spec, "stop", nothing)
+        start_raw === nothing && error("noise dict requires key \"start\"")
+        stop_raw === nothing && error("noise dict requires key \"stop\"")
+
+        start_v = Float64(start_raw)
+        stop_v = Float64(stop_raw)
+        start_v >= 0 || error("noise start must be >= 0, got $start_v")
+        stop_v >= 0 || error("noise stop must be >= 0, got $stop_v")
+
+        sweeps_raw = _spec_get(spec, "sweeps", nothing)
+        nsched = sweeps_raw === nothing ? nsweeps : Int(sweeps_raw)
+        nsched >= 1 || error("noise sweeps must be >= 1, got $nsched")
+        nsched = min(nsched, nsweeps)
+
+        if mode == "linear"
+            return _linear_schedule(start_v, stop_v, nsched)
         end
-        error(
-            "noise.mode must be one of: warmup, auto, automatic, linear, logspace, geometric (got: $mode_raw)"
-        )
+        return _geometric_schedule(start_v, stop_v, nsched)
     end
 
     sched = if noise isa AbstractVector
@@ -587,7 +557,7 @@ function expand_noise_schedule(noise, nsweeps::Int)
         isempty(vals) && error("noise vector cannot be empty")
         vals
     elseif noise isa AbstractDict
-        _auto_noise_schedule(noise)
+        _generated_noise_schedule(noise)
     else
         [Float64(noise)]
     end
