@@ -42,6 +42,60 @@ Example:
 end
 
 """
+    _manual_impurity_occupations(L, Nb_total, impurity_sites; nmax_b=nothing)
+
+Build an impurity occupation vector from an explicit site list supplied by the user.
+
+Unlike the distinct-site generated modes, this manual form allows repeated entries,
+so it can represent either:
+- a spread-out configuration such as `[4, 5, 6, 15, 24, 30]`
+- a manual pileup such as `[16, 16, 16, 16, 16, 16]`
+
+Rules:
+- `impurity_sites` must be provided
+- `length(impurity_sites)` must equal `Nb_total`
+- every site index must lie in `1:L`
+- if `nmax_b` is set, no site occupancy may exceed `nmax_b`
+"""
+function _manual_impurity_occupations(
+    L::Int,
+    Nb_total::Int,
+    impurity_sites;
+    nmax_b::Union{Int,Nothing}=nothing
+)
+    impurity_sites === nothing &&
+        throw(ArgumentError("impurity_distribution=manual requires impurity_sites to be provided"))
+
+    sites_raw = collect(impurity_sites)
+    length(sites_raw) == Nb_total || throw(
+        ArgumentError(
+            "impurity_distribution=manual requires length(impurity_sites) == Nb_total (got $(length(sites_raw)) vs $Nb_total)"
+        )
+    )
+
+    sites = Int[]
+    for site in sites_raw
+        (site isa Integer || (site isa Real && isinteger(site))) || throw(
+            ArgumentError("impurity_sites must contain integer-valued site indices")
+        )
+        i = Int(site)
+        1 <= i <= L || throw(ArgumentError("impurity_sites contains out-of-range site $i for chain length L=$L"))
+        push!(sites, i)
+    end
+
+    nb = _nb_from_positions(L, sites)
+    if nmax_b !== nothing
+        max_occ = maximum(nb; init=0)
+        max_occ <= nmax_b || throw(
+            ArgumentError(
+                "impurity_distribution=manual exceeds nmax_b=$nmax_b (maximum requested site occupancy is $max_occ)"
+            )
+        )
+    end
+    return nb
+end
+
+"""
     _strictly_increasing_positions(targets, L)
 
 Turn approximate target positions into a valid strictly increasing integer site list
@@ -321,7 +375,7 @@ function _distinct_impurity_positions(
 end
 
 """
-    _impurity_occupations(mode, L, Nb_total; nmax_b=nothing, seed=nothing)
+    _impurity_occupations(mode, L, Nb_total; nmax_b=nothing, seed=nothing, impurity_sites=nothing)
 
 Top-level impurity initializer for all supported modes.
 
@@ -334,12 +388,15 @@ function _impurity_occupations(
     L::Int,
     Nb_total::Int;
     nmax_b::Union{Int,Nothing}=nothing,
-    seed::Union{Int,Nothing}=nothing
+    seed::Union{Int,Nothing}=nothing,
+    impurity_sites=nothing
 )
     if mode == :centered_pileup
         return _centered_pileup_occupations(L, Nb_total)
     elseif mode == :random_capped
         return _random_capped_occupations(L, Nb_total; nmax_b=nmax_b, seed=seed)
+    elseif mode == :manual
+        return _manual_impurity_occupations(L, Nb_total, impurity_sites; nmax_b=nmax_b)
     elseif mode in (:centered_block, :uniform_spread, :random_separated, :two_cluster, :asymmetric_mixed)
         positions = _distinct_impurity_positions(mode, L, Nb_total; nmax_b=nmax_b, seed=seed)
         return _nb_from_positions(L, positions)
@@ -347,7 +404,7 @@ function _impurity_occupations(
 
     throw(
         ArgumentError(
-            "impurity_distribution must be one of :centered_pileup, :random_capped, :centered_block, :uniform_spread, :random_separated, :two_cluster, or :asymmetric_mixed"
+            "impurity_distribution must be one of :centered_pileup, :random_capped, :manual, :centered_block, :uniform_spread, :random_separated, :two_cluster, or :asymmetric_mixed"
         )
     )
 end
@@ -357,7 +414,8 @@ end
                           impurity_distribution::Symbol=:centered_pileup,
                           nmax_a::Union{Int,Nothing}=nothing,
                           nmax_b::Union{Int,Nothing}=nothing,
-                          seed::Union{Int,Nothing}=nothing)
+                          seed::Union{Int,Nothing}=nothing,
+                          impurity_sites=nothing)
 
 Generate an initial configuration for a lattice system with `L` sites, distributing two
 types of particles: bath particles (`Na_total`) and impurity particles (`Nb_total`).
@@ -365,6 +423,7 @@ types of particles: bath particles (`Na_total`) and impurity particles (`Nb_tota
 `impurity_distribution` can be:
 - `:centered_pileup` (default): place all impurities at center site.
 - `:random_capped`: randomly distribute impurities across sites, respecting `nmax_b` if provided.
+- `:manual`: use the explicit site list `impurity_sites`; repeated entries are allowed.
 - `:centered_block`: occupy a contiguous centered block of `Nb_total` distinct sites.
 - `:uniform_spread`: place impurities on distinct sites with near-uniform spacing.
 - `:random_separated`: random distinct sites with a built-in minimum spacing.
@@ -377,6 +436,8 @@ Bath particles are initialized separately from impurities:
 
 Examples for `L = 32`, `Nb_total = 6`:
 - `:centered_pileup` -> site `16` gets all 6 impurities
+- `:manual` with `impurity_sites = [4, 5, 6, 15, 24, 30]` -> exactly those sites are occupied
+- `:manual` with `impurity_sites = [16, 16, 16, 16, 16, 16]` -> site `16` gets all 6 impurities
 - `:centered_block` -> `[14, 15, 16, 17, 18, 19]`
 - `:uniform_spread` -> `[3, 8, 13, 18, 23, 28]`
 - `:two_cluster` -> `[9, 10, 11, 22, 23, 24]`
@@ -391,7 +452,8 @@ function initial_configuration(L::Int; Na_total::Int, Nb_total::Int,
     impurity_distribution::Symbol=:centered_pileup,
     nmax_a::Union{Int,Nothing}=nothing,
     nmax_b::Union{Int,Nothing}=nothing,
-    seed::Union{Int,Nothing}=nothing)
+    seed::Union{Int,Nothing}=nothing,
+    impurity_sites=nothing)
     na = fill(0, L)
 
     # Species-a particles are not treated as special "impurities" here. They are
@@ -412,7 +474,8 @@ function initial_configuration(L::Int; Na_total::Int, Nb_total::Int,
         L,
         Nb_total;
         nmax_b=nmax_b,
-        seed=seed
+        seed=seed,
+        impurity_sites=impurity_sites
     )
 
     return collect(zip(na, nb))

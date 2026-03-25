@@ -17,8 +17,9 @@ local_hilbert:
 initial_state:
   Na_total: 12
   Nb_total: 1   # default (overridden by sectors below)
-  impurity_distribution: "random_capped" # centered_pileup, random_capped, centered_block, uniform_spread, random_separated, two_cluster, asymmetric_mixed
+  impurity_distribution: "random_capped" # centered_pileup, random_capped, manual, centered_block, uniform_spread, random_separated, two_cluster, asymmetric_mixed
   seed: 14061990                         # Used when impurity_distribution is random_capped or random_separated
+  # impurity_sites: [6]                  # required when impurity_distribution="manual"
 
 hamiltonian:
   t_a: 1.0

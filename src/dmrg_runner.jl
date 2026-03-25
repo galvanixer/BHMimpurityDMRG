@@ -316,6 +316,7 @@ function dmrg_initial_configuration(; L=12,
     Na_total=12, Nb_total=1,
     impurity_distribution::Union{Symbol,AbstractString}=:centered_pileup,
     seed::Union{Int,Nothing}=nothing,
+    impurity_sites=nothing,
     kwargs...)
     impdist = impurity_distribution isa Symbol ? impurity_distribution : Symbol(impurity_distribution)
     conf = initial_configuration(L;
@@ -323,7 +324,8 @@ function dmrg_initial_configuration(; L=12,
         impurity_distribution=impdist,
         nmax_a=nmax_a,
         nmax_b=nmax_b,
-        seed=seed
+        seed=seed,
+        impurity_sites=impurity_sites
     )
     na0 = Float64[first(x) for x in conf]
     nb0 = Float64[last(x) for x in conf]
@@ -738,6 +740,7 @@ function run_dmrg(; L=12,
     Na_total=12, Nb_total=1,
     impurity_distribution::Union{Symbol,AbstractString}=:centered_pileup,
     seed::Union{Int,Nothing}=nothing,
+    impurity_sites=nothing,
     t_a=1.0, t_b=1.0,
     U_a=10.0, U_b=0.0, U_ab=5.0,
     mu_a=0.0, mu_b=0.0,
@@ -796,7 +799,8 @@ function run_dmrg(; L=12,
                 nmax_a=nmax_a, nmax_b=nmax_b,
                 Na_total=Na_total, Nb_total=Nb_total,
                 impurity_distribution=impurity_distribution,
-                seed=seed
+                seed=seed,
+                impurity_sites=impurity_sites
             )
         end
         if outputlevel > 0
@@ -810,7 +814,8 @@ function run_dmrg(; L=12,
             nmax_a=nmax_a, nmax_b=nmax_b,
             Na_total=Na_total, Nb_total=Nb_total,
             impurity_distribution=impurity_distribution,
-            seed=seed
+            seed=seed,
+            impurity_sites=impurity_sites
         )
         psi0 = product_state_mps(sites, conf; nmax_b=nmax_b)
     end
