@@ -28,6 +28,11 @@ overrides:  # applied to every run (dot-path keys)
   # dmrg.noise.start: 1e-6
   # dmrg.noise.stop: 0.0
   # dmrg.noise.sweeps: 6
+  # Or multiple late kicks:
+  # dmrg.noise.mode: bursts
+  # dmrg.noise.bursts:
+  #   - {start_sweep: 4, start: 1e-6, stop: 0.0, sweeps: 3}
+  #   - {start_sweep: 9, start: 1e-7, stop: 0.0, sweeps: 2}
 
 sweep:  # Cartesian sweep (dot-path keys)
   hamiltonian.mu_b: [3.8, 4.0, 4.2]

@@ -522,14 +522,73 @@ function expand_noise_schedule(noise, nsweeps::Int)
         return vals
     end
 
-    function _generated_noise_schedule(spec::AbstractDict)
-        _require_allowed_spec_keys(spec, ["mode", "start", "stop", "sweeps"], "noise dict")
+    function _bursts_schedule(spec::AbstractDict)
+        _require_allowed_spec_keys(spec, ["mode", "bursts"], "noise dict")
 
+        bursts_raw = _spec_get(spec, "bursts", nothing)
+        bursts_raw isa AbstractVector || error("noise bursts mode requires key \"bursts\" as a non-empty array")
+        isempty(bursts_raw) && error("noise bursts array cannot be empty")
+
+        sched = fill(0.0, nsweeps)
+        occupied = falses(nsweeps)
+
+        for (i, burst_raw) in enumerate(bursts_raw)
+            burst_raw isa AbstractDict || error("noise burst #$i must be a dictionary")
+            burst = burst_raw
+            _require_allowed_spec_keys(
+                burst,
+                ["start_sweep", "start", "stop", "sweeps"],
+                "noise burst #$i"
+            )
+
+            start_sweep_raw = _spec_get(burst, "start_sweep", nothing)
+            start_sweep_raw === nothing && error("noise burst #$i requires key \"start_sweep\"")
+            start_sweep = Int(start_sweep_raw)
+            start_sweep >= 1 || error("noise burst #$i start_sweep must be >= 1, got $start_sweep")
+            start_sweep <= nsweeps || error(
+                "noise burst #$i start_sweep must be <= nsweeps=$nsweeps, got $start_sweep"
+            )
+
+            start_raw = _spec_get(burst, "start", nothing)
+            stop_raw = _spec_get(burst, "stop", nothing)
+            start_raw === nothing && error("noise burst #$i requires key \"start\"")
+            stop_raw === nothing && error("noise burst #$i requires key \"stop\"")
+
+            start_v = Float64(start_raw)
+            stop_v = Float64(stop_raw)
+            start_v >= 0 || error("noise burst #$i start must be >= 0, got $start_v")
+            stop_v >= 0 || error("noise burst #$i stop must be >= 0, got $stop_v")
+
+            sweeps_raw = _spec_get(burst, "sweeps", nothing)
+            sweeps_raw === nothing && error("noise burst #$i requires key \"sweeps\"")
+            burst_sweeps = Int(sweeps_raw)
+            burst_sweeps >= 1 || error("noise burst #$i sweeps must be >= 1, got $burst_sweeps")
+
+            stop_sweep = min(nsweeps, start_sweep + burst_sweeps - 1)
+            any(@view occupied[start_sweep:stop_sweep]) && error(
+                "noise bursts must not overlap; burst #$i overlaps a previous burst"
+            )
+
+            local_sched = _linear_schedule(start_v, stop_v, stop_sweep - start_sweep + 1)
+            sched[start_sweep:stop_sweep] .= local_sched
+            occupied[start_sweep:stop_sweep] .= true
+        end
+
+        return sched
+    end
+
+    function _generated_noise_schedule(spec::AbstractDict)
         mode_raw = _spec_get(spec, "mode", nothing)
-        mode_raw === nothing && error("noise dict requires mode=\"linear\" or mode=\"geometric\"")
+        mode_raw === nothing && error("noise dict requires mode=\"linear\", mode=\"geometric\", or mode=\"bursts\"")
         mode = lowercase(String(mode_raw))
-        mode in ("linear", "geometric") ||
-            error("noise.mode must be \"linear\" or \"geometric\" (got: $mode_raw)")
+        mode in ("linear", "geometric", "bursts") ||
+            error("noise.mode must be \"linear\", \"geometric\", or \"bursts\" (got: $mode_raw)")
+
+        if mode == "bursts"
+            return _bursts_schedule(spec)
+        end
+
+        _require_allowed_spec_keys(spec, ["mode", "start", "stop", "sweeps"], "noise dict")
 
         start_raw = _spec_get(spec, "start", nothing)
         stop_raw = _spec_get(spec, "stop", nothing)

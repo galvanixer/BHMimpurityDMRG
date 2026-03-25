@@ -273,22 +273,48 @@ dmrg:
     sweeps: 4
 ```
 
-Accepted dictionary keys:
-- `mode`
+Multiple late-noise bursts:
+
+```yaml
+dmrg:
+  noise:
+    mode: "bursts"
+    bursts:
+      - start_sweep: 4
+        start: 1e-6
+        stop: 0.0
+        sweeps: 3
+      - start_sweep: 9
+        start: 1e-7
+        stop: 0.0
+        sweeps: 2
+```
+
+Accepted dictionary keys depend on the mode:
+
+- `linear` or `geometric`: `mode`, `start`, `stop`, `sweeps`
+- `bursts`: `mode`, `bursts`
+
+Each entry in `bursts` must use:
+- `start_sweep`
 - `start`
 - `stop`
 - `sweeps`
 
 Rules:
-- `mode` must be exactly `"linear"` or `"geometric"`
-- `start` is required
-- `stop` is required
-- `sweeps` is optional; if omitted, the schedule spans all `nsweeps`
+- `mode` must be exactly `"linear"`, `"geometric"`, or `"bursts"`
+- for `linear` and `geometric`, `start` and `stop` are required
+- for `linear` and `geometric`, `sweeps` is optional; if omitted, the schedule spans all `nsweeps`
+- for `bursts`, `bursts` is required and must be a non-empty array of dictionaries
+- each burst requires `start_sweep`, `start`, `stop`, `sweeps`
 
 Behavior:
 - `linear` changes by a fixed additive amount each sweep
 - `geometric` changes by a fixed multiplicative factor each sweep
-- after the generated part ends, the final value is repeated
+- after a `linear` or `geometric` ramp ends, the final value is repeated
+- `bursts` uses a zero baseline outside the burst windows
+- each burst is a linear ramp from `start` to `stop`
+- bursts must not overlap
 
 Examples:
 
@@ -324,9 +350,35 @@ expands to
 [1.0e-6, 1.0e-7, 1.0e-8, 1.0e-9]
 ```
 
+and
+
+```yaml
+dmrg:
+  noise:
+    mode: "bursts"
+    bursts:
+      - start_sweep: 4
+        start: 1e-6
+        stop: 0.0
+        sweeps: 3
+      - start_sweep: 9
+        start: 1e-7
+        stop: 0.0
+        sweeps: 2
+```
+
+expands to
+
+```yaml
+[0.0, 0.0, 0.0, 1.0e-6, 5.0e-7, 0.0, 0.0, 0.0, 1.0e-7, 0.0]
+```
+
 Constraints:
 - `linear` noise allows `start >= 0` and `stop >= 0`
 - `geometric` noise requires `start > 0` and `stop > 0`
+- `bursts` requires `1 <= start_sweep <= nsweeps`
+- burst windows that extend past `nsweeps` are clipped at the end
+- burst windows must not overlap
 - if you want exact zero at the end, use `linear` or an explicit vector
 
 ## What Now Breaks
@@ -347,7 +399,9 @@ Configs will now fail if they use:
 In short:
 - `maxdim` dicts must use `mode: "warmup"` with `min`, `max`, `sweeps`
 - `cutoff` dicts must use `mode: "geometric"` with `start`, `stop`, `sweeps`
-- `noise` dicts must use `mode: "linear"` or `mode: "geometric"` with `start`, `stop`, `sweeps`
+- `noise` dicts must use either:
+  - `mode: "linear"` or `mode: "geometric"` with `start`, `stop`, `sweeps`
+  - `mode: "bursts"` with `bursts`
 
 ## Practical Guidance
 
@@ -358,6 +412,7 @@ Useful defaults when tuning:
 3. Use a geometric `cutoff` ramp if you want loose early sweeps and tighter late sweeps.
 4. Use linear `noise` if you want the schedule to end at exact zero.
 5. Use geometric `noise` only when you want decade-style decay and do not need exact zero.
+6. Use `noise: { mode: "bursts", ... }` when you want a later kick to help depin a metastable state without disturbing the whole run.
 
 ## Resume Behavior
 

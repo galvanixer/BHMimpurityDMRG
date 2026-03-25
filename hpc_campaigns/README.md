@@ -99,6 +99,7 @@ This gives 4 runs total:
   - `dmrg.maxdim.mode: warmup`, with `dmrg.maxdim.max` and optional `dmrg.maxdim.min`, `dmrg.maxdim.sweeps`
   - `dmrg.cutoff.mode: geometric`, with `dmrg.cutoff.start`, `dmrg.cutoff.stop`, optional `dmrg.cutoff.sweeps`
   - `dmrg.noise.mode: linear|geometric`, with `dmrg.noise.start`, `dmrg.noise.stop`, optional `dmrg.noise.sweeps`
+  - `dmrg.noise.mode: bursts`, with `dmrg.noise.bursts` as an array of non-overlapping burst dictionaries
 - Old aliases such as `warmup_sweeps`, `auto`, `automatic`, and `logspace` are no longer accepted.
 - `observables.triple_corr.pairs` is emitted in compact row form (`- [r, s]`).
 - `jobfile` contains one command per run:

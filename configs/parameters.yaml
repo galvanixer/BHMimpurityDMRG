@@ -65,13 +65,21 @@ dmrg:
   #   start: 1e-8
   #   stop: 1e-10
   #   sweeps: 6
-  noise: 0.0      # DMRG noise (scalar, vector, or linear/geometric dict); use >0 early sweeps to escape local minima
+  noise: 0.0      # DMRG noise (scalar, vector, or linear/geometric/bursts dict); use >0 sweeps to escape local minima
   # Recommended noise schedule when stuck:
   # noise:
   #   mode: "linear"      # use "geometric" for decade-style decay
   #   start: 1e-6
   #   stop: 0.0
   #   sweeps: 6           # then padded with stop value
+  # For later depinning kicks:
+  # noise:
+  #   mode: "bursts"
+  #   bursts:
+  #     - start_sweep: 4
+  #       start: 1e-6
+  #       stop: 0.0
+  #       sweeps: 3
   outputlevel: 1  # ITensors verbosity (0 quiet, 1 sweep summary, >=2 detailed)
 
   # Early stopping
