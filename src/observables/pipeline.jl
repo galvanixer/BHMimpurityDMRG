@@ -6,7 +6,7 @@
 # Centralized observables compute/write pipeline
 # ----------------------------
 
-const OBSERVABLES_SCHEMA_VERSION = "1.6.0"
+const OBSERVABLES_SCHEMA_VERSION = "1.7.0"
 
 """
     _cfg_get(d, key, default=nothing)
@@ -214,6 +214,8 @@ function compute_observables(
     energy_variance=nothing,
     na=nothing,
     nb=nothing,
+    init_na=nothing,
+    init_nb=nothing,
     cfg::AbstractDict=Dict{String,Any}(),
     periodic::Union{Bool,Nothing}=nothing,
     compute_density_density::Bool=true,
@@ -613,6 +615,7 @@ function compute_observables(
     return (
         energy=energy,
         energy_variance=energy_variance,
+        initial_state=(na=init_na, nb=init_nb),
         densities=(na=na_v, nb=nb_v),
         totals=(Na=Na, Nb=Nb),
         density_density=(
@@ -753,6 +756,20 @@ function write_observables_hdf5!(f, obs; schema_version::AbstractString=OBSERVAB
     g_tot = HDF5.create_group(g_obs, "totals")
     write_or_replace(g_tot, "Na", obs.totals.Na)
     write_or_replace(g_tot, "Nb", obs.totals.Nb)
+
+    if hasproperty(obs, :initial_state) &&
+       (obs.initial_state.na !== nothing || obs.initial_state.nb !== nothing)
+        g_init = _replace_group(f, "initial_state")
+        g_init_obs = HDF5.create_group(g_init, "observables")
+        if obs.initial_state.na !== nothing
+            write_or_replace(g_init_obs, "na", obs.initial_state.na)
+        end
+        if obs.initial_state.nb !== nothing
+            write_or_replace(g_init_obs, "nb", obs.initial_state.nb)
+        end
+    elseif haskey(f, "initial_state")
+        HDF5.delete_object(f, "initial_state")
+    end
 
     dd = obs.density_density
     if dd.requested

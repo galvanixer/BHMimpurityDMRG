@@ -74,6 +74,12 @@ function main()
                 energy_variance = st.energy_variance
                 na = st.na
                 nb = st.nb
+                if st.init_na !== nothing
+                    init_na = st.init_na
+                end
+                if st.init_nb !== nothing
+                    init_nb = st.init_nb
+                end
                 @info "Loaded cached state" state_path = state_path
             else
                 @info "State hash mismatch; recomputing"
@@ -158,6 +164,8 @@ function main()
             sites;
             energy=energy,
             energy_variance=energy_variance,
+            init_na=init_na,
+            init_nb=init_nb,
             na=na,
             nb=nb,
             cfg=cfg,

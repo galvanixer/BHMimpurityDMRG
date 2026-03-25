@@ -42,6 +42,15 @@ function compute_energy_stats_from_state(st, cfg::AbstractDict)
     return energy, energy_variance
 end
 
+function compute_initial_densities_from_state(st, cfg::AbstractDict)
+    if st.init_na !== nothing && st.init_nb !== nothing
+        return st.init_na, st.init_nb
+    end
+    init_cfg = merge_sections(cfg, ["lattice", "local_hilbert", "initial_state"])
+    _, init_na, init_nb = dmrg_initial_configuration(; init_cfg...)
+    return init_na, init_nb
+end
+
 function main()
     checkpoint_path = length(ARGS) >= 1 ? ARGS[1] : "dmrg_state_checkpoint.h5"
     results_path = length(ARGS) >= 2 ? ARGS[2] : "results_checkpoint.h5"
@@ -64,6 +73,7 @@ function main()
     psi = st.psi
     sites = st.sites
     energy, energy_variance = compute_energy_stats_from_state(st, cfg)
+    init_na, init_nb = compute_initial_densities_from_state(st, cfg)
 
     if observables_loaded
         println("Using observables config from: $(abspath(observables_path))")
@@ -92,6 +102,8 @@ function main()
         sites;
         energy=energy,
         energy_variance=energy_variance,
+        init_na=init_na,
+        init_nb=init_nb,
         na=na,
         nb=nb,
         cfg=cfg,

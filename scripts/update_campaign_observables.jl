@@ -192,6 +192,15 @@ function compute_energy_stats_from_state(st, cfg::AbstractDict)
     return energy, energy_variance
 end
 
+function compute_initial_densities_from_state(st, cfg::AbstractDict)
+    if st.init_na !== nothing && st.init_nb !== nothing
+        return st.init_na, st.init_nb
+    end
+    init_cfg = merge_sections(cfg, ["lattice", "local_hilbert", "initial_state"])
+    _, init_na, init_nb = dmrg_initial_configuration(; init_cfg...)
+    return init_na, init_nb
+end
+
 function build_observables_from_state(st, cfg::AbstractDict)
     obs_cfg = get(cfg, "observables", Dict{String,Any}())
     lattice_cfg = get(cfg, "lattice", Dict{String,Any}())
@@ -200,6 +209,7 @@ function build_observables_from_state(st, cfg::AbstractDict)
     psi = st.psi
     sites = st.sites
     energy, energy_variance = compute_energy_stats_from_state(st, cfg)
+    init_na, init_nb = compute_initial_densities_from_state(st, cfg)
 
     na, nb = if st.na !== nothing && st.nb !== nothing
         st.na, st.nb
@@ -218,6 +228,8 @@ function build_observables_from_state(st, cfg::AbstractDict)
         sites;
         energy=energy,
         energy_variance=energy_variance,
+        init_na=init_na,
+        init_nb=init_nb,
         na=na,
         nb=nb,
         cfg=cfg,
