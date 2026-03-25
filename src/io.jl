@@ -128,7 +128,7 @@ end
 
 """
     save_state(path::AbstractString, psi::MPS; energy=nothing, sites=siteinds(psi),
-               params_path=nothing, params_text=nothing, na=nothing, nb=nothing,
+               energy_variance=nothing, params_path=nothing, params_text=nothing, na=nothing, nb=nothing,
                init_na=nothing, init_nb=nothing, checkpoint_sweep=nothing)
 
 Save the ground state `psi` (and optionally `energy`, `sites`, YAML parameters, and
@@ -136,7 +136,7 @@ site densities `na`, `nb`)
 to an HDF5 file.
 """
 function save_state(path::AbstractString, psi::MPS; energy=nothing, sites=siteinds(psi),
-    params_path=nothing, params_text=nothing, na=nothing, nb=nothing,
+    energy_variance=nothing, params_path=nothing, params_text=nothing, na=nothing, nb=nothing,
     init_na=nothing, init_nb=nothing, checkpoint_sweep=nothing)
     HDF5.h5open(path, "w") do f
         g_state = HDF5.create_group(f, "state")
@@ -144,6 +144,9 @@ function save_state(path::AbstractString, psi::MPS; energy=nothing, sites=sitein
         write(g_state, "sites", sites)
         if energy !== nothing
             write(g_state, "energy", energy)
+        end
+        if energy_variance !== nothing
+            write(g_state, "energy_variance", energy_variance)
         end
 
         g_meta = HDF5.create_group(f, "meta")
@@ -182,7 +185,7 @@ end
 
 Load a saved MPS ground state from an HDF5 file.
 
-Returns a NamedTuple `(psi, sites, energy, params_yaml, params_sha256, na, nb, init_na, init_nb, checkpoint_sweep)` where
+Returns a NamedTuple `(psi, sites, energy, energy_variance, params_yaml, params_sha256, na, nb, init_na, init_nb, checkpoint_sweep)` where
 optional fields may be `nothing` if they were not stored.
 """
 function load_state(path::AbstractString)
@@ -192,11 +195,13 @@ function load_state(path::AbstractString)
             psi = read(g_state, "psi", MPS)
             sites = read(g_state, "sites", Vector{Index})
             energy = haskey(g_state, "energy") ? read(g_state, "energy") : nothing
+            energy_variance = haskey(g_state, "energy_variance") ? read(g_state, "energy_variance") : nothing
         else
             # Backward compatibility: root-level datasets
             psi = read(f, "psi", MPS)
             sites = read(f, "sites", Vector{Index})
             energy = haskey(f, "energy") ? read(f, "energy") : nothing
+            energy_variance = haskey(f, "energy_variance") ? read(f, "energy_variance") : nothing
         end
 
         params_yaml = nothing
@@ -234,6 +239,6 @@ function load_state(path::AbstractString)
             init_nb = haskey(g_init_obs, "nb") ? read(g_init_obs, "nb") : nothing
         end
 
-        return (; psi, sites, energy, params_yaml, params_sha256, na, nb, init_na, init_nb, checkpoint_sweep)
+        return (; psi, sites, energy, energy_variance, params_yaml, params_sha256, na, nb, init_na, init_nb, checkpoint_sweep)
     end
 end

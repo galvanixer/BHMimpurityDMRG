@@ -28,6 +28,7 @@ mutable struct EarlyStopDMRGObserver <: ITensorMPS.AbstractObserver
     patience::Int
     streak::Int
     sites::Any
+    hamiltonian::Any
     checkpoint_every::Int
     checkpoint_path::Union{Nothing,String}
     checkpoint_params_path::Union{Nothing,String}
@@ -47,6 +48,7 @@ function EarlyStopDMRGObserver(;
     min_sweeps::Int=2,
     patience::Int=1,
     sites=nothing,
+    hamiltonian=nothing,
     checkpoint_every::Int=0,
     checkpoint_path::Union{Nothing,AbstractString}=nothing,
     checkpoint_params_path::Union{Nothing,AbstractString}=nothing,
@@ -71,6 +73,7 @@ function EarlyStopDMRGObserver(;
         max(1, patience),
         0,
         sites,
+        hamiltonian,
         checkpoint_every,
         checkpoint_path === nothing ? nothing : String(checkpoint_path),
         checkpoint_params_path === nothing ? nothing : String(checkpoint_params_path),
@@ -118,6 +121,8 @@ function maybe_checkpoint!(
     try
         na = nothing
         nb = nothing
+        energy_variance = obs.hamiltonian === nothing ? nothing :
+                          operator_variance(psi, obs.hamiltonian; expectation=energy)
         if save_densities
             sites = obs.sites === nothing ? siteinds(psi) : obs.sites
             na, nb = checkpoint_densities(psi, sites)
@@ -126,6 +131,7 @@ function maybe_checkpoint!(
             tmp_path,
             psi;
             energy=energy,
+            energy_variance=energy_variance,
             sites=obs.sites === nothing ? siteinds(psi) : obs.sites,
             params_path=obs.checkpoint_params_path,
             na=na,
@@ -878,6 +884,7 @@ function run_dmrg(; L=12,
         min_sweeps=min_sweeps,
         patience=patience,
         sites=sites,
+        hamiltonian=H,
         checkpoint_every=Int(checkpoint_every),
         checkpoint_path=checkpoint_path,
         checkpoint_params_path=checkpoint_params_path,

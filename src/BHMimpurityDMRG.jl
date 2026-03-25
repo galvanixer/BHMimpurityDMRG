@@ -24,10 +24,10 @@ include("io.jl")
 include("observables/observables.jl")
 
 export two_boson_siteinds, initial_configuration, product_state_mps
-export build_hamiltonian, run_dmrg, dmrg_initial_configuration
+export build_hamiltonian, build_hamiltonian_from_config, run_dmrg, dmrg_initial_configuration
 export effective_energy, sector_energy, binding_energies
 export onsite_expect, measure_densities, total_numbers
-export expect_product, expect_n, expect_nn, expect_nnn
+export expect_product, expect_n, expect_nn, expect_nnn, expect_operator, operator_variance
 export density_density_matrix, density_density_matrix_legacy, density_density_matrix_correlation, cross_density_density_matrix, cross_density_density_matrix_legacy, cross_density_density_matrix_correlation
 export connected_density_density_matrix, connected_cross_density_density_matrix, local_density_variance, transl_avg_density_density, transl_avg_density_density_pair
 export pair_distance_distribution, cross_pair_distance_distribution

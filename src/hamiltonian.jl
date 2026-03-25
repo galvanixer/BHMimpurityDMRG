@@ -65,3 +65,37 @@ function build_hamiltonian(sites; t_a::Real, t_b::Real, U_a::Real, U_b::Real=0.0
 
     return MPO(os, sites)
 end
+
+function _parse_config_bool(x, default::Bool)
+    x === nothing && return default
+    x isa Bool && return x
+    s = lowercase(strip(String(x)))
+    if s in ("1", "true", "yes", "y", "on")
+        return true
+    elseif s in ("0", "false", "no", "n", "off")
+        return false
+    end
+    return default
+end
+
+"""
+    build_hamiltonian_from_config(sites, cfg::AbstractDict)
+
+Build the Hamiltonian MPO from the `lattice` and `hamiltonian` sections of a
+loaded config dictionary.
+"""
+function build_hamiltonian_from_config(sites, cfg::AbstractDict)
+    ham_cfg = get(cfg, "hamiltonian", Dict{String,Any}())
+    lattice_cfg = get(cfg, "lattice", Dict{String,Any}())
+    return build_hamiltonian(
+        sites;
+        t_a=Float64(get(ham_cfg, "t_a", 1.0)),
+        t_b=Float64(get(ham_cfg, "t_b", 1.0)),
+        U_a=Float64(get(ham_cfg, "U_a", 10.0)),
+        U_b=Float64(get(ham_cfg, "U_b", 0.0)),
+        U_ab=Float64(get(ham_cfg, "U_ab", 5.0)),
+        mu_a=Float64(get(ham_cfg, "mu_a", 0.0)),
+        mu_b=Float64(get(ham_cfg, "mu_b", 0.0)),
+        periodic=_parse_config_bool(get(lattice_cfg, "periodic", true), true)
+    )
+end

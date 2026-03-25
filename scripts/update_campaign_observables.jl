@@ -182,24 +182,14 @@ function discover_runs(campaign_root::AbstractString)
     return rows
 end
 
-function compute_energy_from_state(st, cfg::AbstractDict)
-    if st.energy !== nothing
-        return Float64(real(st.energy))
-    end
-    ham_cfg = get(cfg, "hamiltonian", Dict{String,Any}())
-    lattice_cfg = get(cfg, "lattice", Dict{String,Any}())
-    H = build_hamiltonian(
-        st.sites;
-        t_a=Float64(get(ham_cfg, "t_a", 1.0)),
-        t_b=Float64(get(ham_cfg, "t_b", 1.0)),
-        U_a=Float64(get(ham_cfg, "U_a", 10.0)),
-        U_b=Float64(get(ham_cfg, "U_b", 0.0)),
-        U_ab=Float64(get(ham_cfg, "U_ab", 5.0)),
-        mu_a=Float64(get(ham_cfg, "mu_a", 0.0)),
-        mu_b=Float64(get(ham_cfg, "mu_b", 0.0)),
-        periodic=parse_bool(get(lattice_cfg, "periodic", true), true)
-    )
-    return Float64(real(inner(st.psi, Apply(H, st.psi))))
+function compute_energy_stats_from_state(st, cfg::AbstractDict)
+    need_hamiltonian = st.energy === nothing || st.energy_variance === nothing
+    H = need_hamiltonian ? build_hamiltonian_from_config(st.sites, cfg) : nothing
+    energy = st.energy !== nothing ? Float64(real(st.energy)) : expect_operator(st.psi, H)
+    energy_variance = st.energy_variance !== nothing ?
+                      Float64(real(st.energy_variance)) :
+                      operator_variance(st.psi, H; expectation=energy)
+    return energy, energy_variance
 end
 
 function build_observables_from_state(st, cfg::AbstractDict)
@@ -209,7 +199,7 @@ function build_observables_from_state(st, cfg::AbstractDict)
 
     psi = st.psi
     sites = st.sites
-    energy = compute_energy_from_state(st, cfg)
+    energy, energy_variance = compute_energy_stats_from_state(st, cfg)
 
     na, nb = if st.na !== nothing && st.nb !== nothing
         st.na, st.nb
@@ -227,6 +217,7 @@ function build_observables_from_state(st, cfg::AbstractDict)
         psi,
         sites;
         energy=energy,
+        energy_variance=energy_variance,
         na=na,
         nb=nb,
         cfg=cfg,

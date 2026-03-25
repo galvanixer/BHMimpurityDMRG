@@ -62,6 +62,7 @@ function main()
                 if save_states && haskey(r, :psi)
                     state_path = replace(state_tpl, "{Nb_total}" => string(nb))
                     na, nb_dens = measure_densities(r.psi, r.sites)
+                    energy_variance = operator_variance(r.psi, r.H; expectation=r.energy)
                     _, init_na, init_nb = dmrg_initial_configuration(;
                         Nb_total=nb,
                         nmax_b=nmax_b,
@@ -71,6 +72,7 @@ function main()
                         state_path,
                         r.psi;
                         energy=r.energy,
+                        energy_variance=energy_variance,
                         params_path=params_path,
                         na=na,
                         nb=nb_dens,

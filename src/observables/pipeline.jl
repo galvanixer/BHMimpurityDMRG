@@ -6,7 +6,7 @@
 # Centralized observables compute/write pipeline
 # ----------------------------
 
-const OBSERVABLES_SCHEMA_VERSION = "1.5.0"
+const OBSERVABLES_SCHEMA_VERSION = "1.6.0"
 
 """
     _cfg_get(d, key, default=nothing)
@@ -211,6 +211,7 @@ function compute_observables(
     psi::MPS,
     sites;
     energy=nothing,
+    energy_variance=nothing,
     na=nothing,
     nb=nothing,
     cfg::AbstractDict=Dict{String,Any}(),
@@ -611,6 +612,7 @@ function compute_observables(
 
     return (
         energy=energy,
+        energy_variance=energy_variance,
         densities=(na=na_v, nb=nb_v),
         totals=(Na=Na, Nb=Nb),
         density_density=(
@@ -739,6 +741,9 @@ function write_observables_hdf5!(f, obs; schema_version::AbstractString=OBSERVAB
     g_energy = HDF5.create_group(g_obs, "energy")
     if obs.energy !== nothing
         write_or_replace(g_energy, "E0", obs.energy)
+    end
+    if hasproperty(obs, :energy_variance) && obs.energy_variance !== nothing
+        write_or_replace(g_energy, "variance_H", obs.energy_variance)
     end
 
     g_den = HDF5.create_group(g_obs, "densities")

@@ -8,6 +8,23 @@ using HDF5
 using SHA
 using Logging
 using Dates
+
+function ensure_energy_stats(psi, sites, cfg::AbstractDict; energy=nothing, energy_variance=nothing, H=nothing)
+    need_hamiltonian = H !== nothing || energy === nothing || energy_variance === nothing
+    H_eff = if H !== nothing
+        H
+    elseif need_hamiltonian
+        build_hamiltonian_from_config(sites, cfg)
+    else
+        nothing
+    end
+    energy_eff = energy === nothing ? expect_operator(psi, H_eff) : Float64(real(energy))
+    variance_eff = energy_variance === nothing ?
+                   operator_variance(psi, H_eff; expectation=energy_eff) :
+                   Float64(real(energy_variance))
+    return energy_eff, variance_eff, H_eff
+end
+
 function main()
     params_path = length(ARGS) >= 1 ? ARGS[1] :
                   get(ENV, "PARAMS", joinpath(@__DIR__, "..", "configs", "parameters.yaml"))
@@ -45,6 +62,8 @@ function main()
         t_state = time_ns()
         na = nothing
         nb = nothing
+        energy_variance = nothing
+        H = nothing
         dmrg_diag = nothing
         if isfile(state_path)
             st = load_state(state_path)
@@ -52,6 +71,7 @@ function main()
                 psi = st.psi
                 sites = st.sites
                 energy = st.energy
+                energy_variance = st.energy_variance
                 na = st.na
                 nb = st.nb
                 @info "Loaded cached state" state_path = state_path
@@ -63,12 +83,20 @@ function main()
                     return_diagnostics=true,
                     dmrg_cfg...
                 )
+                energy, energy_variance, H = ensure_energy_stats(
+                    psi,
+                    sites,
+                    cfg_base;
+                    energy=energy,
+                    H=H
+                )
                 if save_state_flag
                     na, nb = measure_densities(psi, sites)
                     save_state(
                         state_path,
                         psi;
                         energy=energy,
+                        energy_variance=energy_variance,
                         params_path=params_path,
                         na=na,
                         nb=nb,
@@ -86,12 +114,20 @@ function main()
                 return_diagnostics=true,
                 dmrg_cfg...
             )
+            energy, energy_variance, H = ensure_energy_stats(
+                psi,
+                sites,
+                cfg_base;
+                energy=energy,
+                H=H
+            )
             if save_state_flag
                 na, nb = measure_densities(psi, sites)
                 save_state(
                     state_path,
                     psi;
                     energy=energy,
+                    energy_variance=energy_variance,
                     params_path=params_path,
                     na=na,
                     nb=nb,
@@ -101,6 +137,15 @@ function main()
                 @info "Saved state" state_path = state_path
             end
         end
+
+        energy, energy_variance, H = ensure_energy_stats(
+            psi,
+            sites,
+            cfg_base;
+            energy=energy,
+            energy_variance=energy_variance,
+            H=H
+        )
         @info "State ready" seconds = (time_ns() - t_state) / 1e9
         flush(logcfg.logio) # Ensure all logs are written before proceeding
 
@@ -112,6 +157,7 @@ function main()
             psi,
             sites;
             energy=energy,
+            energy_variance=energy_variance,
             na=na,
             nb=nb,
             cfg=cfg,

@@ -97,3 +97,28 @@ The expectation value `⟨ψ | O_i O_j O_k | ψ⟩` where O is the operator spec
 """
 expect_nnn(psi::MPS, sites, opname::String, i::Int, j::Int, k::Int) =
     expect_product(psi, sites, [(opname, i), (opname, j), (opname, k)])
+
+"""
+    expect_operator(psi::MPS, O::MPO)
+
+Compute `⟨psi|O|psi⟩` as a real `Float64`.
+"""
+function expect_operator(psi::MPS, O::MPO)
+    return Float64(real(inner(psi, Apply(O, psi))))
+end
+
+"""
+    operator_variance(psi::MPS, O::MPO; expectation=nothing)
+
+Compute the operator variance `⟨O²⟩ - ⟨O⟩²` for a normalized state `psi`.
+If `expectation` is provided, it is reused as `⟨O⟩`.
+"""
+function operator_variance(psi::MPS, O::MPO; expectation=nothing)
+    mean = expectation === nothing ? expect_operator(psi, O) : Float64(real(expectation))
+    variance = Float64(real(inner(O, psi, O, psi)) - mean^2)
+    # Round away tiny negative values from contraction error.
+    if variance < 0.0 && abs(variance) <= max(1e-12, 1e-10 * max(mean^2, 1.0))
+        return 0.0
+    end
+    return variance
+end
