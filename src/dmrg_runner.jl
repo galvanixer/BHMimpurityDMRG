@@ -314,7 +314,7 @@ end
 function dmrg_initial_configuration(; L=12,
     nmax_a=3, nmax_b=1,
     Na_total=12, Nb_total=1,
-    impurity_distribution::Union{Symbol,AbstractString}=:center,
+    impurity_distribution::Union{Symbol,AbstractString}=:centered_pileup,
     seed::Union{Int,Nothing}=nothing,
     kwargs...)
     impdist = impurity_distribution isa Symbol ? impurity_distribution : Symbol(impurity_distribution)
@@ -736,7 +736,7 @@ function run_dmrg(; L=12,
     nmax_a=3, nmax_b=1,
     conserve_qns=true,
     Na_total=12, Nb_total=1,
-    impurity_distribution::Union{Symbol,AbstractString}=:center,
+    impurity_distribution::Union{Symbol,AbstractString}=:centered_pileup,
     seed::Union{Int,Nothing}=nothing,
     t_a=1.0, t_b=1.0,
     U_a=10.0, U_b=0.0, U_ab=5.0,

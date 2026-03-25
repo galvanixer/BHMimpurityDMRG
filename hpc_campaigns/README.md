@@ -57,10 +57,10 @@ It also creates:
   - sequential mode keys: `start`, `step`
 - If `count: prompt`, `launch_campaign.jl` asks interactively for number of seeds.
 - For non-interactive runs, set `count` to an integer.
-- If the effective `initial_state.impurity_distribution` is fixed to `center`, `launch_campaign.jl` ignores `initial_state.seed` entirely:
+- If the effective `initial_state.impurity_distribution` is fixed to a deterministic mode (`centered_pileup`, `centered_block`, `uniform_spread`, `two_cluster`, or `asymmetric_mixed`), `launch_campaign.jl` ignores `initial_state.seed` entirely:
   - explicit seed lists do not multiply the run count
   - `AUTO` seed generation is skipped, so there is no prompt for `seed_generation.count`
-- If `impurity_distribution` is itself swept and includes both `center` and `random`, seed sweeps still apply to the `random` runs, while `center` runs are collapsed to one seed-agnostic run per non-seed parameter combination.
+- If `impurity_distribution` is itself swept and includes both deterministic modes and seed-dependent modes (`random_capped`, `random_separated`), seed sweeps still apply only to the seed-dependent runs, while deterministic runs are collapsed to one seed-agnostic run per non-seed parameter combination.
 
 ## Linked Sweep (Non-Cartesian)
 - Use `linked_sweep` for variables that must move together by index.

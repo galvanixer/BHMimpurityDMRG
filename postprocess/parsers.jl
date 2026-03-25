@@ -117,7 +117,7 @@ function extract_key_params(meta::AbstractDict)
     out["cfg_initial_seed"] = begin
         if impurity_distribution === nothing
             nothing
-        elseif lowercase(string(impurity_distribution)) == "random"
+        elseif lowercase(string(impurity_distribution)) in ("random_capped", "random_separated")
             nested_get(cfg, ["initial_state", "seed"], nothing)
         else
             nothing
