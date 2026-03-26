@@ -81,6 +81,7 @@ function main()
                 energy_variance = st.energy_variance
                 na = st.na
                 nb = st.nb
+                dmrg_diag = st.dmrg_diagnostics
                 if st.init_na !== nothing
                     init_na = st.init_na
                 end
@@ -114,7 +115,8 @@ function main()
                         na=na_tmp,
                         nb=nb_tmp,
                         init_na=init_na,
-                        init_nb=init_nb
+                        init_nb=init_nb,
+                        dmrg_diagnostics=dmrg_diag
                     )
                     na = na_tmp
                     nb = nb_tmp
@@ -147,7 +149,8 @@ function main()
                     na=na_tmp,
                     nb=nb_tmp,
                     init_na=init_na,
-                    init_nb=init_nb
+                    init_nb=init_nb,
+                    dmrg_diagnostics=dmrg_diag
                 )
                 na = na_tmp
                 nb = nb_tmp

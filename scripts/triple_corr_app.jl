@@ -74,6 +74,7 @@ function main()
                 energy_variance = st.energy_variance
                 na = st.na
                 nb = st.nb
+                dmrg_diag = st.dmrg_diagnostics
                 if st.init_na !== nothing
                     init_na = st.init_na
                 end
@@ -107,7 +108,8 @@ function main()
                         na=na,
                         nb=nb,
                         init_na=init_na,
-                        init_nb=init_nb
+                        init_nb=init_nb,
+                        dmrg_diagnostics=dmrg_diag
                     )
                     @info "Saved state" state_path = state_path
                 end
@@ -134,14 +136,15 @@ function main()
                     psi;
                     energy=energy,
                     energy_variance=energy_variance,
-                    params_path=params_path,
-                    na=na,
-                    nb=nb,
-                    init_na=init_na,
-                    init_nb=init_nb
-                )
-                @info "Saved state" state_path = state_path
-            end
+                        params_path=params_path,
+                        na=na,
+                        nb=nb,
+                        init_na=init_na,
+                        init_nb=init_nb,
+                        dmrg_diagnostics=dmrg_diag
+                    )
+                    @info "Saved state" state_path = state_path
+                end
         end
 
         energy, energy_variance, H = ensure_energy_stats(

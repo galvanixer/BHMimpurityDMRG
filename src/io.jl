@@ -126,10 +126,89 @@ function write_dmrg_diagnostics!(f, diag)
     return nothing
 end
 
+@inline function _diag_row_value(row, name::Symbol, default)
+    if hasproperty(row, name)
+        return getproperty(row, name)
+    elseif row isa AbstractDict
+        if haskey(row, name)
+            return row[name]
+        end
+        sname = String(name)
+        if haskey(row, sname)
+            return row[sname]
+        end
+    end
+    return default
+end
+
+function _normalize_sweep_trace(rows)
+    rows isa AbstractVector{DMRGSweepTraceRow} && return collect(rows)
+    rows isa AbstractVector || return DMRGSweepTraceRow[]
+
+    out = DMRGSweepTraceRow[]
+    sizehint!(out, length(rows))
+    for row in rows
+        push!(out, DMRGSweepTraceRow(
+            Float64(_diag_row_value(row, :energy, NaN)),
+            Float64(_diag_row_value(row, :delta_energy, NaN)),
+            Float64(_diag_row_value(row, :max_truncerr, NaN)),
+            Int64(_diag_row_value(row, :maxdim_used, 0)),
+            Float64(_diag_row_value(row, :walltime_sec, NaN))
+        ))
+    end
+    return out
+end
+
+function load_dmrg_diagnostics(f)
+    haskey(f, "diagnostics") || return nothing
+    g_diag = f["diagnostics"]
+    haskey(g_diag, "dmrg") || return nothing
+    g_dmrg = g_diag["dmrg"]
+
+    sweep_trace = haskey(g_dmrg, "sweep_trace") ?
+                  _normalize_sweep_trace(read(g_dmrg, "sweep_trace")) :
+                  DMRGSweepTraceRow[]
+    checkpoint_sweeps = haskey(g_dmrg, "checkpoint_sweeps") ?
+                        Int64.(collect(read(g_dmrg, "checkpoint_sweeps"))) :
+                        Int64[]
+
+    return (
+        sweep_trace=sweep_trace,
+        checkpoint_sweeps=checkpoint_sweeps,
+        sweeps_completed=haskey(g_dmrg, "sweeps_completed") ?
+                         Int(read(g_dmrg, "sweeps_completed")) :
+                         length(sweep_trace),
+        converged=haskey(g_dmrg, "converged") ?
+                  Bool(read(g_dmrg, "converged")) :
+                  false,
+        early_stop_triggered=haskey(g_dmrg, "early_stop_triggered") ?
+                             Bool(read(g_dmrg, "early_stop_triggered")) :
+                             false,
+        energy_tol=haskey(g_dmrg, "energy_tol") ?
+                   Float64(read(g_dmrg, "energy_tol")) :
+                   0.0,
+        trunc_tol=haskey(g_dmrg, "trunc_tol") ?
+                  Float64(read(g_dmrg, "trunc_tol")) :
+                  0.0,
+        patience=haskey(g_dmrg, "patience") ?
+                 Int(read(g_dmrg, "patience")) :
+                 1,
+        min_sweeps=haskey(g_dmrg, "min_sweeps") ?
+                   Int(read(g_dmrg, "min_sweeps")) :
+                   2,
+        resume_mode=haskey(g_dmrg, "resume_mode") ?
+                    String(read(g_dmrg, "resume_mode")) :
+                    "unknown",
+        checkpoint_sweep_start=haskey(g_dmrg, "checkpoint_sweep_start") ?
+                               Int(read(g_dmrg, "checkpoint_sweep_start")) :
+                               0
+    )
+end
+
 """
     save_state(path::AbstractString, psi::MPS; energy=nothing, sites=siteinds(psi),
                energy_variance=nothing, params_path=nothing, params_text=nothing, na=nothing, nb=nothing,
-               init_na=nothing, init_nb=nothing, checkpoint_sweep=nothing)
+               init_na=nothing, init_nb=nothing, checkpoint_sweep=nothing, dmrg_diagnostics=nothing)
 
 Save the ground state `psi` (and optionally `energy`, `sites`, YAML parameters, and
 site densities `na`, `nb`)
@@ -137,7 +216,7 @@ to an HDF5 file.
 """
 function save_state(path::AbstractString, psi::MPS; energy=nothing, sites=siteinds(psi),
     energy_variance=nothing, params_path=nothing, params_text=nothing, na=nothing, nb=nothing,
-    init_na=nothing, init_nb=nothing, checkpoint_sweep=nothing)
+    init_na=nothing, init_nb=nothing, checkpoint_sweep=nothing, dmrg_diagnostics=nothing)
     HDF5.h5open(path, "w") do f
         g_state = HDF5.create_group(f, "state")
         write(g_state, "psi", psi)
@@ -176,6 +255,10 @@ function save_state(path::AbstractString, psi::MPS; energy=nothing, sites=sitein
                 write(g_init_obs, "nb", init_nb)
             end
         end
+
+        if dmrg_diagnostics !== nothing
+            write_dmrg_diagnostics!(f, dmrg_diagnostics)
+        end
     end
     return nothing
 end
@@ -185,8 +268,8 @@ end
 
 Load a saved MPS ground state from an HDF5 file.
 
-Returns a NamedTuple `(psi, sites, energy, energy_variance, params_yaml, params_sha256, na, nb, init_na, init_nb, checkpoint_sweep)` where
-optional fields may be `nothing` if they were not stored.
+    Returns a NamedTuple `(psi, sites, energy, energy_variance, params_yaml, params_sha256, na, nb, init_na, init_nb, checkpoint_sweep, dmrg_diagnostics)` where
+    optional fields may be `nothing` if they were not stored.
 """
 function load_state(path::AbstractString)
     HDF5.h5open(path, "r") do f
@@ -239,6 +322,8 @@ function load_state(path::AbstractString)
             init_nb = haskey(g_init_obs, "nb") ? read(g_init_obs, "nb") : nothing
         end
 
-        return (; psi, sites, energy, energy_variance, params_yaml, params_sha256, na, nb, init_na, init_nb, checkpoint_sweep)
+        dmrg_diagnostics = load_dmrg_diagnostics(f)
+
+        return (; psi, sites, energy, energy_variance, params_yaml, params_sha256, na, nb, init_na, init_nb, checkpoint_sweep, dmrg_diagnostics)
     end
 end

@@ -35,6 +35,8 @@ mutable struct EarlyStopDMRGObserver <: ITensorMPS.AbstractObserver
     checkpoint_save_densities::Bool
     checkpoint_density_every::Int
     sweep_offset::Int
+    resume_mode::Symbol
+    checkpoint_sweep_start::Int
     init_na::Union{Nothing,Vector{Float64}}
     init_nb::Union{Nothing,Vector{Float64}}
     early_stop_triggered::Bool
@@ -55,6 +57,8 @@ function EarlyStopDMRGObserver(;
     checkpoint_save_densities::Bool=false,
     checkpoint_density_every::Int=1,
     sweep_offset::Int=0,
+    resume_mode::Symbol=:unknown,
+    checkpoint_sweep_start::Int=0,
     init_na=nothing,
     init_nb=nothing
 )
@@ -80,6 +84,8 @@ function EarlyStopDMRGObserver(;
         checkpoint_save_densities,
         max(1, checkpoint_density_every),
         max(0, sweep_offset),
+        resume_mode,
+        max(0, checkpoint_sweep_start),
         init_na_v,
         init_nb_v,
         false,
@@ -151,6 +157,30 @@ function maybe_checkpoint!(
         end
         if isfile(tmp_path)
             rm(tmp_path; force=true)
+        end
+        return false
+    end
+end
+
+function persist_checkpoint_diagnostics!(
+    obs::EarlyStopDMRGObserver;
+    outputlevel::Integer=0
+)
+    path = obs.checkpoint_path
+    path === nothing && return false
+    try
+        diag = build_dmrg_diagnostics(
+            obs;
+            resume_mode=obs.resume_mode,
+            checkpoint_sweep_start=obs.checkpoint_sweep_start
+        )
+        HDF5.h5open(path, "r+") do f
+            write_dmrg_diagnostics!(f, diag)
+        end
+        return true
+    catch err
+        if outputlevel > 0
+            println("Warning: failed to append DMRG diagnostics to checkpoint $path: $err")
         end
         return false
     end
@@ -265,9 +295,9 @@ function ITensorMPS.checkdone!(obs::EarlyStopDMRGObserver; outputlevel=0, energy
     sw_local = sweep === nothing ? length(obs.energies) : Int(sweep)
     sw = sw_local + obs.sweep_offset
     psi = haskey(kwargs, :psi) ? kwargs[:psi] : nothing
+    checkpoint_written = false
     if psi !== nothing
         checkpoint_written = maybe_checkpoint!(obs; psi=psi, energy=energy, sweep=sw, outputlevel=outputlevel)
-        checkpoint_written && push!(obs.checkpoint_sweeps, Int64(sw))
         push!(obs.maxdim_used, Int64(max_bond_dim(psi)))
     else
         push!(obs.maxdim_used, Int64(0))
@@ -275,6 +305,10 @@ function ITensorMPS.checkdone!(obs::EarlyStopDMRGObserver; outputlevel=0, energy
     now_ns = Int64(time_ns())
     push!(obs.walltime_sec, (now_ns - obs.last_sweep_time_ns) / 1e9)
     obs.last_sweep_time_ns = now_ns
+    if checkpoint_written
+        push!(obs.checkpoint_sweeps, Int64(sw))
+        persist_checkpoint_diagnostics!(obs; outputlevel=outputlevel)
+    end
 
     energy_active = obs.energy_tol > 0.0
     trunc_active = obs.trunc_tol > 0.0
@@ -896,6 +930,8 @@ function run_dmrg(; L=12,
         checkpoint_save_densities=checkpoint_save_densities,
         checkpoint_density_every=Int(checkpoint_density_every),
         sweep_offset=sweep_offset,
+        resume_mode=resume_mode_sym,
+        checkpoint_sweep_start=checkpoint_sweep,
         init_na=init_na,
         init_nb=init_nb
     )

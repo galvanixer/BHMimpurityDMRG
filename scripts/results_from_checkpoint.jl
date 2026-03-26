@@ -134,6 +134,9 @@ function main()
         end
 
         write_observables_hdf5!(f, obs)
+        if st.dmrg_diagnostics !== nothing
+            write_dmrg_diagnostics!(f, st.dmrg_diagnostics)
+        end
     end
 
     println("Wrote checkpoint-derived observables to: $(abspath(results_path))")
