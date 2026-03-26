@@ -111,6 +111,10 @@ function write_dmrg_diagnostics!(f, diag)
         DMRGSweepTraceRow[]
     end
     write_or_replace(g_dmrg, "sweep_trace", sweep_trace_v)
+    total_walltime_sec = hasproperty(diag, :total_walltime_sec) ?
+                         Float64(getproperty(diag, :total_walltime_sec)) :
+                         _sum_sweep_walltime(sweep_trace_v)
+    write_or_replace(g_dmrg, "total_walltime_sec", total_walltime_sec)
 
     checkpoint_sweeps = hasproperty(diag, :checkpoint_sweeps) ? Int64.(collect(diag.checkpoint_sweeps)) : Int64[]
     write_or_replace(g_dmrg, "checkpoint_sweeps", checkpoint_sweeps)
@@ -123,6 +127,34 @@ function write_dmrg_diagnostics!(f, diag)
     write_or_replace(g_dmrg, "min_sweeps", Int(hasproperty(diag, :min_sweeps) ? diag.min_sweeps : 2))
     write_or_replace(g_dmrg, "resume_mode", String(hasproperty(diag, :resume_mode) ? diag.resume_mode : "unknown"))
     write_or_replace(g_dmrg, "checkpoint_sweep_start", Int(hasproperty(diag, :checkpoint_sweep_start) ? diag.checkpoint_sweep_start : 0))
+    return nothing
+end
+
+@inline function _stringify_optional_timestamp(x)
+    x === nothing && return nothing
+    return x isa AbstractString ? String(x) : string(x)
+end
+
+function write_runtime_diagnostics!(
+    f;
+    total_runtime_sec::Union{Nothing,Real}=nothing,
+    runtime_started_at=nothing,
+    runtime_finished_at=nothing
+)
+    g_diag = ensure_group(f, "diagnostics")
+    started_at = _stringify_optional_timestamp(runtime_started_at)
+    finished_at = _stringify_optional_timestamp(runtime_finished_at)
+
+    if total_runtime_sec === nothing && started_at === nothing && finished_at === nothing
+        haskey(g_diag, "runtime") && HDF5.delete_object(g_diag, "runtime")
+        return nothing
+    end
+
+    haskey(g_diag, "runtime") && HDF5.delete_object(g_diag, "runtime")
+    g_runtime = HDF5.create_group(g_diag, "runtime")
+    total_runtime_sec !== nothing && write_or_replace(g_runtime, "total_runtime_sec", Float64(total_runtime_sec))
+    started_at !== nothing && write_or_replace(g_runtime, "runtime_started_at", started_at)
+    finished_at !== nothing && write_or_replace(g_runtime, "runtime_finished_at", finished_at)
     return nothing
 end
 
@@ -139,6 +171,16 @@ end
         end
     end
     return default
+end
+
+function _sum_sweep_walltime(rows)
+    total = 0.0
+    for row in rows
+        t = _diag_row_value(row, :walltime_sec, NaN)
+        isfinite(t) || continue
+        total += Float64(t)
+    end
+    return total
 end
 
 function _normalize_sweep_trace(rows)
@@ -174,6 +216,9 @@ function load_dmrg_diagnostics(f)
 
     return (
         sweep_trace=sweep_trace,
+        total_walltime_sec=haskey(g_dmrg, "total_walltime_sec") ?
+                           Float64(read(g_dmrg, "total_walltime_sec")) :
+                           _sum_sweep_walltime(sweep_trace),
         checkpoint_sweeps=checkpoint_sweeps,
         sweeps_completed=haskey(g_dmrg, "sweeps_completed") ?
                          Int(read(g_dmrg, "sweeps_completed")) :

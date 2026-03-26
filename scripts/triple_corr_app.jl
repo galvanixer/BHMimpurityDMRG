@@ -47,7 +47,8 @@ function main()
     logger = logcfg.logger
 
     with_logger(logger) do
-        logstarttime = Dates.format(now(), "yyyy-mm-dd HH:MM:SS")
+        runtime_started_at = now()
+        logstarttime = Dates.format(runtime_started_at, "yyyy-mm-dd HH:MM:SS")
         @info "--------Logging starts here -------- ($logstarttime)--------"
         @info "Starting triple_corr" params_path = params_path observables_path=observables_path observables_loaded=observables_loaded state_path = state_path
         if !observables_loaded && params_has_observables
@@ -65,6 +66,7 @@ function main()
         energy_variance = nothing
         H = nothing
         dmrg_diag = nothing
+        ran_dmrg = false
         if isfile(state_path)
             st = load_state(state_path)
             if current_hash !== nothing && st.params_sha256 !== nothing && st.params_sha256 == current_hash
@@ -84,6 +86,7 @@ function main()
                 @info "Loaded cached state" state_path = state_path
             else
                 @info "State hash mismatch; recomputing"
+                ran_dmrg = true
                 energy, psi, sites, H, dmrg_diag = run_dmrg(
                     ;
                     checkpoint_params_path=params_path,
@@ -116,6 +119,7 @@ function main()
             end
         else
             @info "No cached state; running DMRG"
+            ran_dmrg = true
             energy, psi, sites, H, dmrg_diag = run_dmrg(
                 ;
                 checkpoint_params_path=params_path,
@@ -197,6 +201,14 @@ function main()
             write_observables_hdf5!(f, obs)
             if dmrg_diag !== nothing
                 write_dmrg_diagnostics!(f, dmrg_diag)
+            end
+            if ran_dmrg
+                write_runtime_diagnostics!(
+                    f;
+                    total_runtime_sec=(time_ns() - t_total) / 1e9,
+                    runtime_started_at=runtime_started_at,
+                    runtime_finished_at=now()
+                )
             end
         end
         @info "Wrote results" results_path = results_path seconds = (time_ns() - t_write) / 1e9

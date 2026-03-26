@@ -4,6 +4,7 @@
 
 include(joinpath(@__DIR__, "..", "src", "BHMimpurityDMRG.jl"))
 using .BHMimpurityDMRG
+using Dates
 using HDF5
 using Logging
 using SHA
@@ -56,6 +57,8 @@ function main()
     logger = logcfg.logger
 
     with_logger(logger) do
+        t_total = time_ns()
+        runtime_started_at = now()
         @info "Solving for ground state using DMRG" params_path=params_path observables_path=observables_path observables_loaded=observables_loaded results_path=results_path
         if !observables_loaded && params_has_observables
             @info "Observables file not found; falling back to observables in parameters config" observables_path=observables_path
@@ -71,6 +74,7 @@ function main()
         energy_variance = nothing
         H = nothing
         dmrg_diag = nothing
+        ran_dmrg = false
         if isfile(state_path)
             st = load_state(state_path)
             if current_hash !== nothing && st.params_sha256 !== nothing &&
@@ -91,6 +95,7 @@ function main()
                 @info "Using cached state (hash matched)" state_path=state_path
             else
                 @info "Cached state missing/mismatched hash; running DMRG" state_path=state_path
+                ran_dmrg = true
                 energy, psi, sites, H, dmrg_diag = run_dmrg_to_log(
                     logcfg.log_path;
                     checkpoint_params_path=params_path,
@@ -125,6 +130,7 @@ function main()
             end
         else
             @info "No cached state found; running DMRG" state_path=state_path
+            ran_dmrg = true
             energy, psi, sites, H, dmrg_diag = run_dmrg_to_log(
                 logcfg.log_path;
                 checkpoint_params_path=params_path,
@@ -206,6 +212,14 @@ function main()
             write_observables_hdf5!(f, obs)
             if dmrg_diag !== nothing
                 write_dmrg_diagnostics!(f, dmrg_diag)
+            end
+            if ran_dmrg
+                write_runtime_diagnostics!(
+                    f;
+                    total_runtime_sec=(time_ns() - t_total) / 1e9,
+                    runtime_started_at=runtime_started_at,
+                    runtime_finished_at=now()
+                )
             end
         end
         @info "Wrote results" results_path=results_path
